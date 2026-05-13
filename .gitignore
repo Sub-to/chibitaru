@@ -1,0 +1,22 @@
+# macOS metadata
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Model files (too large for GitHub - download separately)
+aoko/model/*.gguf
+aoko/model/*.bin
+
+# ClamAV DB (too large - download separately)
+scan/clamdb/*.cvd
+scan/clamdb/*.cld
+
+# Logs
+/tmp/aoko_*.log
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

@@ -1,0 +1,4 @@
+# Place ClamAV database files here
+# main.cvd, daily.cvd, bytecode.cvd
+# Download: https://www.clamav.net/downloads
+# Or run: freshclam --datadir=./scan/clamdb
