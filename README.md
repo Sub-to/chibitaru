@@ -130,9 +130,7 @@ start.bat         # Windows
 
 ## 💬 Why?
 
-> As AI capabilities grow, the gap between large organizations and individuals widens.  
-> Enterprises have dedicated SOC teams and million-dollar tools.  
-> Individuals have… nothing.  
+>I believe we have entered an era where individuals must take responsibility for their own digital security. I created this tool to provide a simple yet effective way to detect threats using AI and gain precious time by automatically disconnecting the network. My goal is to empower users to protect their own environments proactively.
 >
 > But a 1.5B parameter AI fits on a USB drive now.  
 > **Chibitaru is a small step toward closing that gap.**
