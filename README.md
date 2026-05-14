@@ -130,10 +130,9 @@ start.bat         # Windows
 
 ## 💬 Why?
 
->I believe we have entered an era where individuals must take responsibility for their own digital security. I created this tool to provide a simple yet effective way to detect threats using AI and gain precious time by automatically disconnecting the network. My goal is to empower users to protect their own environments proactively.
+> In today's world, proactive digital defense is essential. This AI-powered tool is designed to detect threats at an early stage. By alerting the user the moment a risk is sensed, it buys critical time to disconnect from the network or take other security measures. I built this to help people take control of their own digital safety.
 >
-> But a 1.5B parameter AI fits on a USB drive now.  
-> **Chibitaru is a small step toward closing that gap.**
+> But a 1.5B parameter AI fits on a USB drive 
 
 ---
 
