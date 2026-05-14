@@ -102,9 +102,9 @@ start.bat         # Windows
 
 | OS | llama-server | Notification | Network cut |
 |----|-------------|-------------|------------|
-| macOS (ARM/Intel) | `bin/llama-server` | osascript | networksetup |
-| Linux x64 | `bin/linux-x64/` | notify-send | nmcli |
-| Windows 11 x64 | `bin/win-x64/` | PowerShell Toast | netsh |
+| macOS (ARM/Intel) ✅ | `bin/llama-server` | osascript | networksetup |
+| Linux x64 (CachyOS/Arch) ✅ | `bin/linux-x64/` | notify-send | nmcli |
+| Windows 11 x64 ✅ | `bin/win-x64/` | PowerShell Toast | netsh |
 
 ---
 
