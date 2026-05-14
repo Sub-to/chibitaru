@@ -14,8 +14,8 @@ import subprocess
 import platform
 from pathlib import Path
 
-VAULT_PATH = Path.home() / "Ofsaver1"
-LOG_PATH   = VAULT_PATH / "望丸" / "蔵丸管理" / "青っ子アラート.md"
+VAULT_PATH = Path(os.environ.get("CHIBITARU_VAULT", str(Path.home() / "ObsidianVault")))
+LOG_PATH   = VAULT_PATH / "chibitaru-alerts.md"
 
 _OS = platform.system()  # "Darwin" / "Linux" / "Windows"
 
@@ -133,9 +133,7 @@ def log_to_vault(result: dict):
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     if not LOG_PATH.exists():
         LOG_PATH.write_text(
-            "---\nタグ: [青っ子, セキュリティ, 自動生成]\n---\n"
-            "# 🔵 青っ子 セキュリティアラートログ\n"
-            "> [[MOC/ニュースMOC]] | [[望丸/望丸_ダッシュボード]]\n\n",
+            "# 🔵 Chibitaru Security Alert Log\n\n",
             encoding="utf-8"
         )
     with open(LOG_PATH, "a", encoding="utf-8") as f:

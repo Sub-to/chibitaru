@@ -1,53 +1,43 @@
 #!/bin/bash
-# 📦 チビタル インストーラー
-# 新しいMacに鬼丸・蔵丸・青っ子をセットアップ
+# Chibitaru Installer - macOS / Linux
 
 USB_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+OS="$(uname -s)"
+DEST="$HOME/chibitaru-agents"
 
 echo ""
-echo "📦 チビタル インストーラー"
-echo "何をインストールしますか？"
-echo "  1: 🔵 青っ子（セキュリティ監視）"
-echo "  2: 👁️  蔵丸（Vault品質管理）"
-echo "  3: 👹 鬼丸（ファイル改ざん検知）"
-echo "  4: 全部まとめて"
+echo "========================================"
+echo "  Chibitaru Installer ($OS)"
+echo "========================================"
 echo ""
-read -p "選択 > " CHOICE
+echo "  1: Install Blue Triple Star (security monitor)"
+echo "  2: Install chibitaru command (Linux Fish shell)"
+echo "  0: Exit"
+echo ""
+read -p "Select > " CHOICE
 
-INSTALL_DIR="$HOME/ランドセル"
-mkdir -p "$INSTALL_DIR"
-
-install_aoko() {
-    echo "🔵 青っ子をインストール中..."
-    cp -r "$USB_DIR/aoko" "$INSTALL_DIR/"
-    echo "  ✅ $INSTALL_DIR/aoko/"
-    echo "  起動: bash $INSTALL_DIR/aoko/launch.sh"
-}
-
-install_kuramaru() {
-    echo "👁️  蔵丸をインストール中..."
-    if [ -f "$USB_DIR/install/kuramaru.py" ]; then
-        cp "$USB_DIR/install/kuramaru.py" "$INSTALL_DIR/"
-    else
-        echo "  ⚠️  蔵丸はUSBに含まれていません（Macから直接コピーしてください）"
-    fi
-}
-
-install_onimaru() {
-    echo "👹 鬼丸をインストール中..."
-    if [ -d "$USB_DIR/install/onimaru" ]; then
-        cp -r "$USB_DIR/install/onimaru" "$INSTALL_DIR/"
-    else
-        echo "  ⚠️  鬼丸はUSBに含まれていません"
-    fi
-}
+mkdir -p "$DEST"
 
 case $CHOICE in
-  1) install_aoko ;;
-  2) install_kuramaru ;;
-  3) install_onimaru ;;
-  4) install_aoko; install_kuramaru; install_onimaru ;;
+  1)
+    echo "[*] Installing Blue Triple Star to $DEST/aoko ..."
+    cp -r "$USB_DIR/aoko" "$DEST/"
+    echo "[OK] Done! Start with: bash $DEST/aoko/launch.sh"
+    ;;
+  2)
+    FISH_DIR="$HOME/.config/fish/functions"
+    mkdir -p "$FISH_DIR"
+    cp "$USB_DIR/install/chibitaru.fish" "$FISH_DIR/chibitaru.fish"
+    echo "[OK] chibitaru command installed!"
+    echo "     Run: chibitaru"
+    ;;
+  0)
+    echo "Bye!"
+    ;;
+  *)
+    echo "Unknown option."
+    ;;
 esac
 
 echo ""
-echo "✅ インストール完了！"
+echo "[OK] Done!"

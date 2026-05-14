@@ -22,7 +22,7 @@ _OS = platform.system()  # "Darwin" / "Linux" / "Windows"
 
 # ── 監視設定 ──────────────────────────────────────────────────────────────────
 SCAN_INTERVAL   = 30      # 秒
-VAULT_PATH      = Path.home() / "Ofsaver1"
+VAULT_PATH      = Path(os.environ.get("CHIBITARU_VAULT", str(Path.home() / "ObsidianVault")))
 
 # 怪しいプロセス名のパターン
 SUSPICIOUS_PROCS = [
@@ -156,7 +156,7 @@ def check_vault_changes() -> list[dict]:
 def check_ai_injection() -> list[dict]:
     """
     Vault内のノートにプロンプトインジェクション的な文字列がないか確認。
-    望丸が収集した外部コンテンツ経由での攻撃を想定。
+    外部コンテンツ経由でのAI攻撃を想定。
     """
     events = []
     suspicious_patterns = [
@@ -170,10 +170,9 @@ def check_ai_injection() -> list[dict]:
     # 直近に更新されたノートだけチェック（重くならないよう）
     try:
         cutoff = time.time() - 300  # 直近5分
-        nozomaru_dir = VAULT_PATH / "望丸"
         recent_files = []
-        if nozomaru_dir.exists():
-            for md in nozomaru_dir.rglob("*.md"):
+        if VAULT_PATH.exists():
+            for md in VAULT_PATH.rglob("*.md"):
                 try:
                     if md.stat().st_mtime > cutoff:
                         recent_files.append(str(md))

@@ -67,7 +67,7 @@ echo   3: 全部まとめて
 echo.
 set /p INST_CHOICE=選択 ^>
 
-set INSTALL_DIR=%USERPROFILE%\ランドセル
+set INSTALL_DIR=%USERPROFILE%\chibitaru-agents
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
 if "%INST_CHOICE%"=="1" (
@@ -91,7 +91,7 @@ goto END
 
 :VAULT
 echo.
-set KURAMARU=%USERPROFILE%\ランドセル\kuramaru.py
+set KURAMARU=%USERPROFILE%\chibitaru-agents\kuramaru.py
 if exist "%KURAMARU%" (
     python "%KURAMARU%"
 ) else (

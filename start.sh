@@ -55,7 +55,7 @@ case $CHOICE in
     echo ""
     # Vault の蔵丸を探す
     KURAMARU_PATHS=(
-        "$HOME/ランドセル/kuramaru.py"
+        "$HOME/chibitaru-agents/kuramaru.py"
         "$HOME/kuramaru.py"
     )
     KURAMARU=""
