@@ -173,11 +173,29 @@ def proc_name(pid):
     return comm, cmdline
 
 
+# スクリプトを動かすと comm にはインタプリタ名しか出ない。
+# その場合だけ cmdline を見る。
+INTERPRETERS = ("bash", "sh", "node", "perl", "ruby")
+
+
 def classify(comm, cmdline):
-    hay = f"{comm} {cmdline}"
+    """
+    実行ファイル名（comm）で照合する。
+
+    かつては cmdline も混ぜて照合していたが、それだと earlyoom を
+    「TUI シェル」と誤認した。earlyoom の引数には守る対象として
+    chibitaru-tui という文字列が入っているため。
+    他人のコマンドラインに自分の名前が出るのは普通のことなので、
+    cmdline での照合は最後の手段にする。
+    """
     for label, patterns in COMPONENTS:
-        if any(p in hay for p in patterns):
+        if any(p in comm for p in patterns):
             return label
+
+    if comm in INTERPRETERS or comm.startswith("python"):
+        for label, patterns in COMPONENTS:
+            if any(p in cmdline for p in patterns):
+                return label
     return None
 
 

@@ -103,7 +103,21 @@ step_packages() {
     # 見る・聴く
     firefox-esr mpv yt-dlp mpd mpc
     # コンテナと遠隔
+    #
+    # podman の Recommends を --no-install-recommends で切っているため、
+    # rootless に要るものを自分で並べる必要がある。VM で 2 回踏んだ:
+    #   uidmap なし → "command required for rootless mode with multiple IDs"
+    #   passt なし  → "could not find pasta, the network namespace can't be configured"
+    # どちらも podman 自体は入って --version も通るので、実際に
+    # コンテナを起動するまで気づけない。
     podman podman-compose openssh-server
+    uidmap              # newuidmap/newgidmap（UID 割り当て）
+    passt               # pasta（podman 5 の既定の rootless ネットワーク）
+    slirp4netns         # 古い環境向けのネットワーク代替
+    netavark aardvark-dns  # コンテナ間ネットワークと名前解決
+    catatonit           # コンテナ内の init
+    containers-storage
+    dbus-user-session   # ユーザーセッションのバス（pipewire も使う）
     # 道具
     python3 python3-venv python3-pip git curl rsync ripgrep micro
     # 日本語

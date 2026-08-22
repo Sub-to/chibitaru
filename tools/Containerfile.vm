@@ -1,0 +1,19 @@
+# VM を動かすための箱。
+#
+# 母艦の Bazzite はイミュータブルなのでホストに qemu を入れない。
+# /dev/kvm を渡してもらえば、コンテナの中から実機同然の速度で動く。
+FROM debian:13-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      qemu-system-x86 \
+      qemu-utils \
+      cloud-image-utils \
+      openssh-client \
+      ca-certificates \
+      curl \
+      rsync \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /chibitaru

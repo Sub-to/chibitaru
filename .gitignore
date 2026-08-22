@@ -20,3 +20,4 @@ scan/clamdb/*.cld
 __pycache__/
 *.pyc
 *.pyo
+.vm/
