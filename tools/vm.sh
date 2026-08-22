@@ -105,8 +105,10 @@ EOF
   c_ok "cloud-init の種"
 
   c_head "起動"
-  # 画面は出さず SSH だけで操作する。-nographic だと serial が stdout に
-  # 向いてしまい console.log に残らないので -display none を使う。
+  # 画面は出さないが GPU は持たせる。labwc は DRM/KMS がないと起動しない
+  # ので、-display none でも仮想 GPU 自体は要る。中身は monitor ソケット
+  # 越しに screendump で撮って確認する。
+  # -nographic だと serial が stdout に向いて console.log に残らない。
   podman run -d --rm --name chibitaru-vm \
     --device /dev/kvm \
     -v "$VM_DIR:/vm:z" -v "$REPO:/chibitaru:z" \
@@ -118,6 +120,8 @@ EOF
       -drive file=/vm/seed.iso,if=virtio,format=raw \
       -netdev "user,id=n0,hostfwd=tcp::2222-:22" \
       -device virtio-net-pci,netdev=n0 \
+      -device virtio-gpu-pci,xres=1280,yres=800 \
+      -monitor unix:/vm/monitor.sock,server,nowait \
       -display none -serial file:/vm/console.log >/dev/null
   c_ok "qemu 起動"
 
@@ -152,6 +156,57 @@ vm_scp() {
 }
 
 # ═══════════════════════════════════════════════════════════
+# qemu の monitor に screendump を投げて画面を撮る。
+# ゲストに何も入れずに済むので、labwc が起動しない状態でも撮れる
+# （むしろ起動しない時にこそ、何が出ているかを見たい）。
+cmd_shot() {
+  local out="${1:-$VM_DIR/screen.png}"
+  [ -S "$VM_DIR/monitor.sock" ] || c_die "VM が動いていません"
+  rm -f "$VM_DIR/shot.png"
+  python3 "$REPO/tools/qemu-monitor.py" "$VM_DIR/monitor.sock" \
+          "screendump /vm/shot.png -f png" >/dev/null
+  sleep 1
+  if [ -f "$VM_DIR/shot.png" ]; then
+    [ "$out" = "$VM_DIR/shot.png" ] || mv "$VM_DIR/shot.png" "$out"
+    c_ok "$out ($(du -h "$out" | cut -f1))"
+  else
+    c_die "撮れませんでした"
+  fi
+}
+
+# クラウド用カーネルには DRM ドライバが入っておらず /dev/dri ができない。
+# labwc を試すには通常カーネルが要る。実機は netinst で通常カーネルが
+# 入るので、これは VM 側の事情であって製品の問題ではない。
+cmd_gfx_kernel() {
+  if vm_ssh "test -e /dev/dri/card0" 2>/dev/null; then
+    c_ok "/dev/dri あり（$(vm_ssh 'uname -r')）"
+    return 0
+  fi
+  c_warn "クラウド用カーネルには DRM がない。通常カーネルを入れる"
+  # update を挟まないと "Unable to locate package" で黙って失敗する
+  vm_ssh "sudo apt-get update -qq" >/dev/null 2>&1
+  vm_ssh "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq linux-image-amd64" \
+    >/dev/null 2>&1 || c_die "通常カーネルを入れられませんでした"
+
+  # 入れるだけでは足りない。GRUB は既定でクラウド用を選び続けるので、
+  # クラウド用を外して通常カーネルしか残らない状態にする。
+  vm_ssh "sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq \
+            linux-image-cloud-amd64 'linux-image-*-cloud-amd64'" >/dev/null 2>&1
+  vm_ssh "sudo update-grub" >/dev/null 2>&1
+  c_ok "クラウド用カーネルを外した"
+
+  vm_ssh "sudo systemctl reboot" >/dev/null 2>&1 || true
+  sleep 12
+  for _ in $(seq 90); do vm_ssh true 2>/dev/null && break; sleep 2; done
+
+  if vm_ssh "test -e /dev/dri/card0" 2>/dev/null; then
+    c_ok "/dev/dri ができた（$(vm_ssh 'uname -r')）"
+  else
+    c_warn "起動中: $(vm_ssh 'uname -r' 2>/dev/null || echo 不明)"
+    c_die "通常カーネルを入れても /dev/dri ができない"
+  fi
+}
+
 cmd_down() {
   podman stop -t 2 chibitaru-vm >/dev/null 2>&1 && c_ok "VM 停止" || c_warn "動いていない"
 }
@@ -168,6 +223,8 @@ case "${1:-test}" in
   down)    cmd_down ;;
   clean)   cmd_clean ;;
   ssh)     shift; vm_ssh "$@" ;;
+  shot)    cmd_shot "${2:-}" ;;
+  gfx)     cmd_gfx_kernel ;;
   test)    shift; bash "$REPO/tools/vm-verify.sh" "${1:-4g}" ;;
-  *)       c_die "使えるのは prepare / up / ssh / down / clean / test" ;;
+  *)       c_die "使えるのは prepare / up / ssh / shot / gfx / down / clean / test" ;;
 esac

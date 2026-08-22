@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages zram sysctl earlyoom firefox podman vault report)
+STEPS=(preflight profile packages zram sysctl earlyoom firefox podman vault session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -120,8 +120,11 @@ step_packages() {
     dbus-user-session   # ユーザーセッションのバス（pipewire も使う）
     # 道具
     python3 python3-venv python3-pip git curl rsync ripgrep micro
-    # 日本語
-    fonts-noto-cjk
+    # 日本語と記号
+    # fonts-noto-cjk に絵文字は入っていない。入れないと 🎤 や 🔵 が
+    # 豆腐になる（VM の画面で確認）。ウェブページにも絵文字は出るので
+    # ブラウザのためにも要る。
+    fonts-noto-cjk fonts-noto-color-emoji
   )
 
   apt-get update -qq
@@ -264,6 +267,70 @@ step_vault() {
   done
   install -d -o "$TARGET_USER" -g "$TARGET_USER" -m 755 "$v"
   c_ok "$v （日記 / ノート / 会話 / 音声 / web / ops）"
+}
+
+# ═══════════════════════════════════════════════════════════
+step_session() {
+  c_head "セッション（起動したら画面が出るまで）"
+
+  # ログイン画面は置かない。この OS は 1 人で使う道具で、
+  # 画面が出るまでの時間と常駐メモリを減らすほうが目的に合う。
+  install -D -m 644 /dev/stdin \
+    /etc/systemd/system/getty@tty1.service.d/autologin.conf <<EOF
+# install/setup.sh が生成
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin ${TARGET_USER} --noclear %I \$TERM
+EOF
+  c_ok "tty1 に ${TARGET_USER} で自動ログイン"
+
+  # tty1 でログインした時だけ labwc を起こす。
+  # SSH から入った時に画面を奪わないよう、条件を絞ってある。
+  local prof="${TARGET_HOME}/.bash_profile"
+  if ! grep -q "chibitaru-session" "$prof" 2>/dev/null; then
+    cat >> "$prof" <<'EOF'
+
+# ── chibitaru-session ──────────────────────────────
+# tty1 から入った時だけ画面を起こす。SSH では起こさない。
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    exec dbus-run-session labwc
+fi
+EOF
+    chown "$TARGET_USER:$TARGET_USER" "$prof"
+  fi
+  c_ok "tty1 から入った時だけ labwc（SSH では起こさない）"
+
+  # labwc が上がったら端末を出す。Phase 2 で TUI シェルに差し替える。
+  install -d -o "$TARGET_USER" -g "$TARGET_USER" -m 755 \
+    "${TARGET_HOME}/.config/labwc"
+  install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 755 /dev/stdin \
+    "${TARGET_HOME}/.config/labwc/autostart" <<'EOF'
+#!/bin/sh
+# install/setup.sh が生成
+# Phase 2 でここが TUI シェルに変わる。今は端末だけ。
+foot &
+EOF
+  c_ok "labwc の autostart に foot"
+
+  # 画面いっぱいに端末を出す。飾りは持たない。
+  install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 644 /dev/stdin \
+    "${TARGET_HOME}/.config/labwc/rc.xml" <<'EOF'
+<?xml version="1.0"?>
+<!-- install/setup.sh が生成 -->
+<labwc_config>
+  <theme><cornerRadius>0</cornerRadius></theme>
+  <!-- 端末は装飾なしで全画面。この OS に窓を並べる用途がない -->
+  <windowRules>
+    <windowRule identifier="foot">
+      <action name="ToggleMaximize"/>
+      <serverDecoration>no</serverDecoration>
+    </windowRule>
+  </windowRules>
+</labwc_config>
+EOF
+  c_ok "端末は装飾なしで全画面"
+
+  svc daemon-reload
 }
 
 # ═══════════════════════════════════════════════════════════
