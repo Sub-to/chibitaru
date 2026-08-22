@@ -25,10 +25,23 @@ T440s の USB 3.0 ポートは**左側面の 2 つ**。
 Debian 13 の netinst ISO を落とす。約 700MB。
 
 ```bash
-curl -fLO https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.1.0-amd64-netinst.iso
+curl -fLO https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.6.0-amd64-netinst.iso
 ```
 
-> 版が上がっていたら <https://www.debian.org/download> で最新を確認する。
+> **版番号は上がっていく。** 404 が出たら実際にある名前を確認する:
+> ```bash
+> curl -fsSL https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/SHA256SUMS | grep netinst
+> ```
+
+落としたら壊れていないか確かめる。USB に書いてから気づくと
+工程を丸ごとやり直すことになる。
+
+```bash
+curl -fsSLO https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+`OK` と出れば先に進む。
 
 ### Raspberry Pi Imager で書く（おすすめ）
 
@@ -66,7 +79,7 @@ lsblk -o NAME,SIZE,TYPE,TRAN,MOUNTPOINTS
 `nvme0n1` のような内蔵ディスクを選ばないこと。
 
 ```bash
-sudo dd if=debian-13.1.0-amd64-netinst.iso of=/dev/sdX bs=4M status=progress oflag=sync
+sudo dd if=debian-13.6.0-amd64-netinst.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
 `/dev/sdX` は上で確かめた名前。`/dev/sdX1` のような数字付きではなく、
