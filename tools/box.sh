@@ -17,10 +17,12 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="debian:13-slim"
 
 case "$TIER" in
-  2g) MEM=2g  ;;
-  4g) MEM=4g  ;;
-  8g) MEM=8g  ;;
-  *)  echo "使えるのは 2g / 4g / 8g のどれか（指定: $TIER）" >&2; exit 1 ;;
+  4g) MEM=4g ;;
+  8g) MEM=8g ;;
+  2g|1g)
+    echo "  2GB / 1GB は別プロジェクト（実機で検証する）。" >&2
+    exit 1 ;;
+  *)  echo "使えるのは 4g / 8g のどちらか（指定: $TIER）" >&2; exit 1 ;;
 esac
 
 echo
@@ -32,7 +34,6 @@ echo
 # CPU も絞っておく。対象機は 2〜4 コアで、開発機の 16 コアで
 # 測ると起動時間や whisper の所要が現実離れするため。
 case "$TIER" in
-  2g) CPUS=2 ;;
   4g) CPUS=2 ;;
   8g) CPUS=4 ;;
 esac

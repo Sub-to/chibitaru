@@ -33,8 +33,8 @@ def pad(s, width, align="<"):
 # ── 設計書の予算（MB）。実測をこれと突き合わせる ─────────────────
 # Firefox の 800 は推定ではなく実測（3タブ / 各3回 / 中央値）。
 # 設定でこれ以下にはならないことを確認済みなので、全ティア同値。
+# 2GB / 1GB は別プロジェクトに分離した（実機での検証に切り替えたため）。
 BUDGET = {
-    "2g": {"基盤": 480, "Firefox": 800, "コンテナ": 300},
     "4g": {"基盤": 540, "Firefox": 800, "会話AI": 420, "mpv": 180, "コンテナ": 350},
     "8g": {"基盤": 540, "Firefox": 800, "会話AI": 1150, "mpv": 180, "コンテナ": 350},
 }
@@ -293,16 +293,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--peak", type=int, metavar="SEC",
                     help="指定秒数サンプリングして最大値を出す")
-    ap.add_argument("--tier", choices=("2g", "4g", "8g"),
+    ap.add_argument("--tier", choices=("4g", "8g"),
                     help="突き合わせる予算（省略時は搭載量から推定）")
     ap.add_argument("--json", action="store_true", help="機械可読で出す")
     args = ap.parse_args()
 
     mem = read_meminfo()
-    tier = args.tier or (
-        "2g" if mem["MemTotal"] <= 2560 else
-        "4g" if mem["MemTotal"] <= 5120 else "8g"
-    )
+    tier = args.tier or ("4g" if mem["MemTotal"] <= 5120 else "8g")
 
     if args.peak:
         acc, unc, den = {}, 0.0, 0

@@ -14,7 +14,7 @@ import statistics
 import sys
 from collections import defaultdict
 
-BUDGET = {"2g": 800, "4g": 800, "8g": 800}   # 実測にもとづく（旧 550/900）
+BUDGET = {"4g": 800, "8g": 800}   # 実測にもとづく（旧 550/900）
 
 
 def raw(tier, mode):
@@ -49,7 +49,7 @@ def summarize(path):
     print(f"  {'':<4} {'調整なし':>18} {'調整あり':>18} {'差':>10} {'予算':>8}")
     print("  " + "─" * 66)
 
-    for tier in ("2g", "4g", "8g"):
+    for tier in ("4g", "8g"):
         base = runs.get((tier, "none"))
         tuned = runs.get((tier, tier))
         if not base or not tuned:
@@ -65,7 +65,7 @@ def summarize(path):
               f"{delta:>+9.0f} {budget:>8}{over}")
 
     print("  " + "─" * 66)
-    for tier in ("2g", "4g", "8g"):
+    for tier in ("4g", "8g"):
         for mode, label in (("none", "調整なし"), (tier, "調整あり")):
             vals = runs.get((tier, mode))
             if not vals or len(vals) < 2:
