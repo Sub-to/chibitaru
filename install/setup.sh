@@ -38,6 +38,25 @@ svc() {
   fi
 }
 
+
+# install -d は最後の階層にしか -o/-g を適用しない。
+# 親を root 所有のまま残すと、そこに書こうとしたアプリが
+# "permission denied" で落ちる。VM で micro が実際に落ちた。
+mkuserdir() {
+  local d="$1"
+  install -d -m 755 "$d"
+  # ホーム配下は全階層をそのユーザーの持ち物にする
+  local p="$d"
+  while [ "$p" != "/" ] && [ "$p" != "." ]; do
+    case "$p" in
+      "$TARGET_HOME"|"$TARGET_HOME"/*)
+        chown "$TARGET_USER:$TARGET_USER" "$p" ;;
+      *) break ;;
+    esac
+    p=$(dirname "$p")
+  done
+}
+
 # ═══════════════════════════════════════════════════════════
 step_preflight() {
   c_head "前提を確認"
@@ -120,6 +139,9 @@ step_packages() {
     dbus-user-session   # ユーザーセッションのバス（pipewire も使う）
     # 道具
     python3 python3-venv python3-pip git curl rsync ripgrep micro
+    # TUI シェル。端末エミュレータは自前で持たず tmux に任せるので、
+    # 下のペインでは vim も htop も普通に動く。
+    python3-textual tmux
     # 日本語と記号
     # fonts-noto-cjk に絵文字は入っていない。入れないと 🎤 や 🔵 が
     # 豆腐になる（VM の画面で確認）。ウェブページにも絵文字は出るので
@@ -263,9 +285,8 @@ step_vault() {
   # ただのフォルダなので母艦の Obsidian でそのまま開ける。
   local v="${TARGET_HOME}/Vault"
   for d in 日記 ノート 会話 音声 web ops; do
-    install -d -o "$TARGET_USER" -g "$TARGET_USER" -m 755 "$v/$d"
+    mkuserdir "$v/$d"
   done
-  install -d -o "$TARGET_USER" -g "$TARGET_USER" -m 755 "$v"
   c_ok "$v （日記 / ノート / 会話 / 音声 / web / ops）"
 }
 
@@ -301,16 +322,15 @@ EOF
   c_ok "tty1 から入った時だけ labwc（SSH では起こさない）"
 
   # labwc が上がったら端末を出す。Phase 2 で TUI シェルに差し替える。
-  install -d -o "$TARGET_USER" -g "$TARGET_USER" -m 755 \
-    "${TARGET_HOME}/.config/labwc"
+  mkuserdir "${TARGET_HOME}/.config/labwc"
+  mkuserdir "${TARGET_HOME}/.config/micro"   # エディタが設定を書く先
   install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 755 /dev/stdin \
     "${TARGET_HOME}/.config/labwc/autostart" <<'EOF'
 #!/bin/sh
 # install/setup.sh が生成
-# Phase 2 でここが TUI シェルに変わる。今は端末だけ。
-foot &
+foot -e /opt/chibitaru/bin/chibitaru-session &
 EOF
-  c_ok "labwc の autostart に foot"
+  c_ok "labwc の autostart に Vault シェル"
 
   # 画面いっぱいに端末を出す。飾りは持たない。
   install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 644 /dev/stdin \

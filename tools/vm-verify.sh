@@ -115,6 +115,16 @@ head_ "その他"
 vm_ssh "systemctl is-active --quiet ssh" 2>/dev/null && ok "sshd 稼働中" || ng "sshd"
 vm_ssh "test -d ~/Vault/日記" 2>/dev/null && ok "Vault ができている" || ng "Vault"
 
+# install -d の -o が最後の階層にしか効かない件で micro が落ちた。
+# 同じ種類のバグを二度見逃さないよう、ホーム配下に他人の持ち物が
+# 残っていないかを毎回見る。
+STRAY=$(get 'find ~ -maxdepth 3 ! -user $(id -un) -printf "%p " 2>/dev/null | head -c 200')
+case "$STRAY" in
+  __ERR__*) bug "所有者を調べられなかった" ;;
+  "")       ok "ホーム配下は全部自分の持ち物" ;;
+  *)        ng "ホームに他人の持ち物がある: $STRAY" ;;
+esac
+
 PV=$(get 'podman --version')
 case "$PV" in
   __ERR__*) bug "podman がない" ;;

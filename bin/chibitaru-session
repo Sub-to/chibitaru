@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Chibitaru OS のセッション。foot が起動したらこれが動く。
+#
+# 画面の作りは tmux に任せる。上に Vault シェル、下に本物の bash。
+#
+#   ┌─ tree ────┬─ preview ─────────┐
+#   │ 日記      │ # 2026-08-23      │   上: chibitaru_tui.py
+#   │ ノート    │ …                 │
+#   ├───────────┴───────────────────┤
+#   │ $ _                           │   下: 本物の bash
+#   └───────────────────────────────┘
+#
+# 端末エミュレータを自前で持たないので、下のペインでは vim も htop も
+# less もそのまま動く。TUI 側は Vault のことだけ考えればよい。
+#
+set -euo pipefail
+
+SESSION=chibitaru
+TUI="${CHIBITARU_TUI:-/opt/chibitaru/tui/chibitaru_tui.py}"
+
+# 既にあれば繋ぎ直す（foot を開き直しても続きから使えるように）
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  exec tmux attach -t "$SESSION"
+fi
+
+# ── 見た目 ────────────────────────────────────────────────
+# 飾りは持たない。状態は TUI 側のステータス行が出すので、
+# tmux の status は消して 1 行ぶん画面を返す。
+tmux new-session -d -s "$SESSION" -n vault
+tmux set-option -t "$SESSION" status off
+tmux set-option -t "$SESSION" mouse on
+tmux set-option -t "$SESSION" escape-time 10
+tmux set-option -t "$SESSION" history-limit 5000
+tmux set-option -t "$SESSION" pane-border-style      "fg=colour238"
+tmux set-option -t "$SESSION" pane-active-border-style "fg=colour67"
+
+# ── ペインを割る ──────────────────────────────────────────
+# 上 65% が Vault、下 35% がシェル。
+tmux split-window -t "$SESSION:vault" -v -p 35
+
+SHELL_PANE=$(tmux list-panes -t "$SESSION:vault" -F '#{pane_id}' | sed -n 2p)
+VAULT_PANE=$(tmux list-panes -t "$SESSION:vault" -F '#{pane_id}' | sed -n 1p)
+
+# TUI から下のシェルを動かせるようにペイン ID を渡す。
+# これで「e を押したら下のエディタで開く」ができる。
+tmux send-keys -t "$VAULT_PANE" \
+  "clear && CHIBITARU_SHELL_PANE=$SHELL_PANE exec python3 $TUI" Enter
+
+tmux send-keys -t "$SHELL_PANE" "clear" Enter
+
+# ── 行き来 ────────────────────────────────────────────────
+# 前置キーなしで上下を行き来できるようにする。
+# 毎回 Ctrl-b を挟むのは、この画面の使い方に合わない。
+tmux bind-key -n M-Up   select-pane -U
+tmux bind-key -n M-Down select-pane -D
+tmux bind-key -n F2 run-shell "firefox-esr >/dev/null 2>&1 &"
+
+tmux select-pane -t "$VAULT_PANE"
+exec tmux attach -t "$SESSION"
