@@ -45,6 +45,8 @@ RUN=(
   podman run --rm "${TTY_FLAGS[@]}"
   --memory="$MEM"
   --memory-swap="$MEM"
+  # smaps_rollup を読むのに要る。rootless podman は既定で落とす。
+  --cap-add=SYS_PTRACE
   --cpus="$CPUS"
   --hostname="chibitaru-$TIER"
   -e "CHIBITARU_TIER=$TIER"

@@ -31,15 +31,18 @@ def pad(s, width, align="<"):
     return s + fill if align == "<" else fill + s
 
 # ── 設計書の予算（MB）。実測をこれと突き合わせる ─────────────────
+# Firefox の 800 は推定ではなく実測（3タブ / 各3回 / 中央値）。
+# 設定でこれ以下にはならないことを確認済みなので、全ティア同値。
 BUDGET = {
-    "2g": {"基盤": 480, "Firefox": 550, "コンテナ": 300},
-    "4g": {"基盤": 540, "Firefox": 550, "会話AI": 420, "mpv": 180, "コンテナ": 350},
-    "8g": {"基盤": 540, "Firefox": 900, "会話AI": 1150, "mpv": 180, "コンテナ": 350},
+    "2g": {"基盤": 480, "Firefox": 800, "コンテナ": 300},
+    "4g": {"基盤": 540, "Firefox": 800, "会話AI": 420, "mpv": 180, "コンテナ": 350},
+    "8g": {"基盤": 540, "Firefox": 800, "会話AI": 1150, "mpv": 180, "コンテナ": 350},
 }
 
 # ── プロセス名 → 構成要素。上から順に最初に一致したものを採る ────
 COMPONENTS = [
-    ("TUI シェル",  ("chibitaru", "chibitaru-tui")),
+    # パスに /chibitaru/ を含むだけのシェルを拾わないよう、実行ファイル名で照合する
+    ("TUI シェル",  ("chibitaru-tui", "chibitaru_tui", "tui.py")),
     ("端末",        ("foot", "footclient", "alacritty")),
     ("labwc",       ("labwc", "sway", "wlroots")),
     ("Firefox",     ("firefox", "Web Content", "Isolated Web Co", "WebExtensions",
@@ -132,14 +135,27 @@ def zram_stats():
     return out
 
 
+class Denied(Exception):
+    """smaps_rollup が権限で読めなかった。0 と区別する必要がある。"""
+
+
 def proc_pss(pid):
-    """PSS を MB で返す。読めなければ None。"""
+    """
+    PSS を MB で返す。
+
+    読めなかった場合に 0 を返してはいけない。rootless の podman は
+    CAP_SYS_PTRACE を落とすため、別ユーザーのプロセスがまるごと
+    読めなくなる。それを 0 として数えると「Firefox は 2MB でした」の
+    ような、一見もっともらしい嘘の計測結果になる。
+    """
     try:
         for line in Path(f"/proc/{pid}/smaps_rollup").read_text().splitlines():
             if line.startswith("Pss:"):
                 return int(line.split()[1]) / 1024
-    except (OSError, PermissionError, ValueError):
-        pass
+    except PermissionError:
+        raise Denied from None
+    except (OSError, ValueError):
+        pass  # プロセスが消えただけ。無視してよい。
     return None
 
 
@@ -166,16 +182,21 @@ def classify(comm, cmdline):
 
 
 def sample():
-    """今この瞬間の構成要素別 PSS を返す。"""
+    """今この瞬間の構成要素別 PSS を返す。(groups, 未分類MB, 読めなかった数)"""
     groups = {}
     unclassified = 0.0
+    denied = 0
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
             continue
         names = proc_name(entry)
         if names is None:
             continue
-        pss = proc_pss(entry)
+        try:
+            pss = proc_pss(entry)
+        except Denied:
+            denied += 1
+            continue
         if pss is None:
             continue
         label = classify(*names)
@@ -185,7 +206,7 @@ def sample():
             g = groups.setdefault(label, {"mb": 0.0, "procs": 0})
             g["mb"] += pss
             g["procs"] += 1
-    return groups, unclassified
+    return groups, unclassified, denied
 
 
 def merge_peak(acc, groups):
@@ -196,7 +217,7 @@ def merge_peak(acc, groups):
             cur["procs"] = g["procs"]
 
 
-def render(groups, unclassified, mem, tier, elapsed=None):
+def render(groups, unclassified, denied, mem, tier, elapsed=None):
     total_used = mem["MemTotal"] - mem["MemAvailable"]
     identified = sum(g["mb"] for g in groups.values())
     budget = BUDGET.get(tier, {})
@@ -245,6 +266,12 @@ def render(groups, unclassified, mem, tier, elapsed=None):
         print(line)
 
     # 箱の中から見える zram はホストのもの。混乱するので出さない。
+    if denied:
+        print(rule)
+        print(f"  ⚠ {denied} 個のプロセスを権限で読めなかった。この数字は過少。")
+        print("    rootless podman は CAP_SYS_PTRACE を落とすため、別ユーザーの")
+        print("    プロセスが丸ごと欠ける。--cap-add=SYS_PTRACE を付けて測り直すこと。")
+
     z = zram_stats() if mem.get("Source") == "host" else []
     if z:
         print(rule)
@@ -278,12 +305,13 @@ def main():
     )
 
     if args.peak:
-        acc, unc = {}, 0.0
+        acc, unc, den = {}, 0.0, 0
         deadline = time.monotonic() + args.peak
         while time.monotonic() < deadline:
-            groups, u = sample()
+            groups, u, d = sample()
             merge_peak(acc, groups)
             unc = max(unc, u)
+            den = max(den, d)
             if not args.json:
                 total = sum(g["mb"] for g in acc.values())
                 left = int(deadline - time.monotonic())
@@ -292,9 +320,9 @@ def main():
             time.sleep(1)
         if not args.json:
             print("\r" + " " * 46 + "\r", end="", file=sys.stderr)
-        groups, unclassified, elapsed = acc, unc, args.peak
+        groups, unclassified, denied, elapsed = acc, unc, den, args.peak
     else:
-        groups, unclassified = sample()
+        groups, unclassified, denied = sample()
         elapsed = None
 
     if args.json:
@@ -304,11 +332,12 @@ def main():
                         ("MemTotal", "MemAvailable", "MemFree", "Cached")},
             "components": groups,
             "unclassified_mb": round(unclassified, 1),
+            "denied_procs": denied,
             "zram": zram_stats(),
         }, sys.stdout, ensure_ascii=False, indent=2)
         print()
     else:
-        render(groups, unclassified, mem, tier, elapsed)
+        render(groups, unclassified, denied, mem, tier, elapsed)
 
 
 if __name__ == "__main__":

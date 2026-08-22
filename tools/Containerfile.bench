@@ -1,0 +1,17 @@
+# Firefox のメモリを測るためだけの箱。
+# 実機の Debian 13 と同じ firefox-esr を使う。
+FROM debian:13-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      firefox-esr \
+      xvfb \
+      python3 \
+      procps \
+      ca-certificates \
+      fonts-dejavu-core \
+      fonts-noto-cjk \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /chibitaru
