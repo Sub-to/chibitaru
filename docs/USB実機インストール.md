@@ -30,7 +30,33 @@ curl -fLO https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.1.
 
 > 版が上がっていたら <https://www.debian.org/download> で最新を確認する。
 
-**書き込み先を間違えると母艦のディスクが消える。** 必ず確認する。
+### Raspberry Pi Imager で書く（おすすめ）
+
+母艦に入っている 1.9.6 は `.iso` のカスタムイメージに対応している。
+`dd` より安全 — 書き込み先が製品名と容量で出るので、内蔵ディスクと
+取り違えにくい。書き込んだあとの検証もしてくれる。
+
+1. Raspberry Pi Imager を起動
+2. **「デバイスを選択」** — カスタムイメージなので何でもよい。
+   フィルタなしのままで進む
+3. **「OS を選択」** → 一番下までスクロール →
+   **「カスタムイメージを使う」** → 落とした `.iso` を選ぶ
+4. **「ストレージを選択」** → 本命 USB を選ぶ。
+   製品名と容量（32GB など）で確認する
+5. **「次へ」**
+6. ⚠ **「OS カスタマイズ設定を適用しますか？」と聞かれたら
+   必ず「いいえ」「設定を編集しない」を選ぶ**
+
+   ここが唯一の落とし穴。Raspberry Pi 用の設定（Wi-Fi・ホスト名・
+   SSH 鍵）を Debian の ISO に書き込むと壊れる。カスタムイメージなら
+   本来聞かれないが、版によっては出る。
+
+7. 書き込み → 検証まで待つ
+
+### dd で書く場合
+
+Imager を使わないなら、書き込み先を必ず確認してから。
+**間違えると母艦のディスクが消える。**
 
 ```bash
 lsblk -o NAME,SIZE,TYPE,TRAN,MOUNTPOINTS
@@ -43,8 +69,8 @@ lsblk -o NAME,SIZE,TYPE,TRAN,MOUNTPOINTS
 sudo dd if=debian-13.1.0-amd64-netinst.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
-`/dev/sdX` は上で確かめた名前に置き換える。`/dev/sdX1` のような
-数字付きではなく、数字なしのほうを指定する。
+`/dev/sdX` は上で確かめた名前。`/dev/sdX1` のような数字付きではなく、
+数字なしのほうを指定する。
 
 ---
 
