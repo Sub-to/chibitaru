@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages zram sysctl earlyoom firefox podman vault session report)
+STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman vault session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -121,6 +121,14 @@ step_packages() {
     pipewire pipewire-pulse wireplumber
     # 見る・聴く
     firefox-esr mpv yt-dlp mpd mpc
+    # 動画のハードウェアデコード。世代ごとに使うドライバが違う:
+    #   Gen7.5 以前（Haswell / T440s など）→ i965
+    #   Gen8 以降（Broadwell 以降）        → intel-media
+    #   AMD / その他                       → mesa
+    # PCI ID から世代を当てる表は壊れやすいので書かない。3つとも入れて
+    # libva に選ばせる。ディスクは 50MB 増えるが、読み込まれるのは
+    # 実際に使う 1 つだけなので RAM は増えない。
+    i965-va-driver intel-media-va-driver mesa-va-drivers vainfo
     # コンテナと遠隔
     #
     # podman の Recommends を --no-install-recommends で切っているため、
@@ -138,7 +146,7 @@ step_packages() {
     containers-storage
     dbus-user-session   # ユーザーセッションのバス（pipewire も使う）
     # 道具
-    python3 python3-venv python3-pip git curl rsync ripgrep micro
+    python3 python3-venv python3-pip git curl rsync ripgrep micro pciutils util-linux
     # TUI シェル。端末エミュレータは自前で持たず tmux に任せるので、
     # 下のペインでは vim も htop も普通に動く。
     python3-textual tmux
@@ -152,6 +160,124 @@ step_packages() {
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends "${pkgs[@]}"
   c_ok "${#pkgs[@]} 個を導入"
+}
+
+# ═══════════════════════════════════════════════════════════
+step_gpu() {
+  c_head "動画のハードウェアデコード"
+  # ここが効かないと再生が CPU に落ち、発熱と消費電力が跳ね上がる。
+  # 「エコな OS」を名乗る以上、効いているかどうかを黙って仮定しない。
+
+  if [ ! -e /dev/dri/renderD128 ]; then
+    c_warn "/dev/dri がない。GPU を使えていない"
+    c_warn "  仮想環境ならこれが普通。実機なら linux-image-amd64 と firmware を確認"
+    return 0
+  fi
+
+  local gpu
+  gpu=$(lspci 2>/dev/null | grep -iE "VGA|Display" | head -1 | cut -d: -f3- | sed 's/^ //')
+  [ -n "$gpu" ] && c_ok "GPU: ${gpu}"
+
+  if ! command -v vainfo >/dev/null; then
+    c_warn "vainfo がない。確認できない"
+    return 0
+  fi
+
+  local info drv
+  info=$(vainfo 2>&1 || true)
+  drv=$(printf '%s' "$info" | grep -m1 -oE "[a-z0-9_]+_drv_video\.so" || true)
+  [ -n "$drv" ] && c_ok "使うドライバ: ${drv}"
+
+  # H.264 が降りれば、実用上の動画はほぼ GPU で再生される
+  if printf '%s' "$info" | grep -q "VAProfileH264.*VAEntrypointVLD"; then
+    c_ok "H.264 のハードウェアデコードが有効"
+  else
+    c_warn "H.264 のハードウェアデコードが効いていない"
+    c_warn "  mpv は動くが CPU で再生され、発熱と電池消費が増える"
+    printf '%s\n' "$info" | grep -iE "error|fail" | head -3 | sed 's/^/      /'
+  fi
+}
+
+# ═══════════════════════════════════════════════════════════
+step_usb() {
+  c_head "USB 起動なら書き込みを減らす"
+  # USB メモリの書き込み回数には限りがある。放っておくと数か月で
+  # 壊れる。ここで効くのは主にログと atime の 2 つ。
+  #
+  # なお、この OS はスワップを zram（メモリ内）に置いているので、
+  # 一番書き込みが多くなるスワップは最初からディスクに触れていない。
+
+  # 根っこがどのデバイスに載っているかを調べる
+  local rootsrc rootdisk removable=0
+  rootsrc=$(findmnt -no SOURCE / 2>/dev/null || true)
+  rootdisk=$(lsblk -no PKNAME "$rootsrc" 2>/dev/null | head -1 || true)
+  [ -z "$rootdisk" ] && rootdisk=$(basename "$rootsrc" 2>/dev/null | sed 's/[0-9]*$//')
+
+  if [ -r "/sys/block/${rootdisk}/removable" ]; then
+    removable=$(cat "/sys/block/${rootdisk}/removable")
+  fi
+  # USB 接続かどうかも見る（removable=0 の USB SSD もあるため）
+  if readlink -f "/sys/block/${rootdisk}" 2>/dev/null | grep -q "/usb[0-9]"; then
+    removable=1
+  fi
+
+  if [ "$removable" != "1" ]; then
+    c_skip "内蔵ディスクから起動している。何もしない"
+    return 0
+  fi
+
+  c_ok "USB から起動している（/dev/${rootdisk}）"
+
+  # ── ログをメモリに置く ──────────────────────────────
+  # 一番書き込みが多いのはこれ。再起動で消えるが、残したいものは
+  # Vault に書く設計なので困らない。
+  install -D -m 644 /dev/stdin /etc/systemd/journald.conf.d/chibitaru-usb.conf <<'EOF'
+# install/setup.sh が生成（USB 起動のため）
+[Journal]
+Storage=volatile
+RuntimeMaxUse=32M
+EOF
+  c_ok "ログはメモリに置く（USB に書かない）"
+
+  # ── 書き戻しの間隔を延ばす ──────────────────────────
+  install -D -m 644 /dev/stdin /etc/sysctl.d/98-chibitaru-usb.conf <<'EOF'
+# install/setup.sh が生成（USB 起動のため）
+# 書き戻しをまとめて回数を減らす。落ちた時に失う量は増えるが、
+# USB の寿命とのつり合いでこちらを取る。
+vm.dirty_writeback_centisecs = 6000
+vm.dirty_expire_centisecs = 6000
+EOF
+  c_ok "書き戻しをまとめる"
+
+  # ── atime を止める ──────────────────────────────────
+  # ファイルを読むだけで書き込みが起きるのを止める。
+  # fstab を壊すと起動しなくなるので、控えを取って検証してから入れ替える。
+  if findmnt -no OPTIONS / | grep -qE "noatime|relatime"; then
+    local cur
+    cur=$(findmnt -no OPTIONS / | grep -o "noatime" || true)
+    if [ -n "$cur" ]; then
+      c_ok "atime は既に止まっている"
+      return 0
+    fi
+  fi
+
+  if grep -qE "^[^#].*\s/\s" /etc/fstab; then
+    cp -a /etc/fstab /etc/fstab.chibitaru.bak
+    awk '
+      /^[[:space:]]*#/ { print; next }
+      $2 == "/" && $4 !~ /noatime/ { sub(/^/, "noatime,", $4); print $1,$2,$3,$4,$5,$6; next }
+      { print }
+    ' OFS="\t" /etc/fstab > /etc/fstab.new
+
+    if findmnt --verify --tab-file /etc/fstab.new >/dev/null 2>&1; then
+      mv /etc/fstab.new /etc/fstab
+      c_ok "noatime を追加（控え: /etc/fstab.chibitaru.bak）"
+    else
+      rm -f /etc/fstab.new
+      c_warn "fstab の検証に通らなかったので触っていない"
+      c_warn "  手で / の行に noatime を足してください"
+    fi
+  fi
 }
 
 # ═══════════════════════════════════════════════════════════
