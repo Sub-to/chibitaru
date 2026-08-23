@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman vault session report)
+STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman install vault session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -378,7 +378,7 @@ step_firefox() {
   # 外れるので、apt の後に置き直す。
   install -D -m 644 /dev/stdin /etc/apt/apt.conf.d/99chibitaru-firefox <<EOF
 // install/setup.sh が生成。firefox-esr の更新で消える設定を置き直す。
-DPkg::Post-Invoke { "[ -x ${HERE}/setup.sh ] && bash ${HERE}/setup.sh --only firefox --quiet || true"; };
+DPkg::Post-Invoke { "[ -x /opt/chibitaru/install/setup.sh ] && bash /opt/chibitaru/install/setup.sh --only firefox --quiet || true"; };
 EOF
   c_ok "更新後に置き直す apt フックを設置"
 }
@@ -402,6 +402,46 @@ step_podman() {
 command -v podman >/dev/null && ! command -v docker >/dev/null && alias docker=podman
 EOF
   c_ok "docker → podman の別名を設定"
+}
+
+# ═══════════════════════════════════════════════════════════
+step_install() {
+  c_head "実行ファイルを /opt/chibitaru に置く"
+  # リポジトリをどこに clone したかに依存しないようにする。
+  #
+  # ここが抜けていて実機で画面が出なかった。autostart は
+  # /opt/chibitaru/bin/chibitaru-session を見るのに、そこへ何も
+  # 置いていなかった。VM では検証スクリプトが手でコピーしていたため
+  # 穴が塞がって見えていた。テスト側が本番と違うことをしていた例。
+
+  if [ "$REPO" = "/opt/chibitaru" ]; then
+    c_ok "既に /opt/chibitaru から動いている"
+    return 0
+  fi
+
+  install -d -m 755 /opt/chibitaru
+  for d in bin tui tools profiles install docs; do
+    [ -d "$REPO/$d" ] || continue
+    rm -rf "/opt/chibitaru/$d"
+    cp -a "$REPO/$d" /opt/chibitaru/
+  done
+
+  chmod +x /opt/chibitaru/bin/* 2>/dev/null || true
+  chmod +x /opt/chibitaru/tools/*.sh /opt/chibitaru/tools/*.py 2>/dev/null || true
+  chmod +x /opt/chibitaru/install/*.sh 2>/dev/null || true
+
+  # 置いたものが実際に動くかまで見る。存在確認だけでは、
+  # 実行権限がない・中身が壊れている場合を見逃す。
+  if [ -x /opt/chibitaru/bin/chibitaru-session ]; then
+    c_ok "bin/chibitaru-session"
+  else
+    c_die "/opt/chibitaru/bin/chibitaru-session を置けませんでした"
+  fi
+  if python3 -c "import ast,sys; ast.parse(open('/opt/chibitaru/tui/chibitaru_tui.py').read())" 2>/dev/null; then
+    c_ok "tui/chibitaru_tui.py"
+  else
+    c_die "TUI を置けませんでした"
+  fi
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -450,11 +490,15 @@ EOF
   # labwc が上がったら端末を出す。Phase 2 で TUI シェルに差し替える。
   mkuserdir "${TARGET_HOME}/.config/labwc"
   mkuserdir "${TARGET_HOME}/.config/micro"   # エディタが設定を書く先
+  local session_bin=/opt/chibitaru/bin/chibitaru-session
+  [ -x "$session_bin" ] || c_die "$session_bin がありません（install 段が失敗している）"
+
   install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 755 /dev/stdin \
-    "${TARGET_HOME}/.config/labwc/autostart" <<'EOF'
+    "${TARGET_HOME}/.config/labwc/autostart" <<EOF
 #!/bin/sh
 # install/setup.sh が生成
-foot -e /opt/chibitaru/bin/chibitaru-session &
+# 端末が落ちても画面が真っ黒にならないよう、失敗したら素の foot を出す。
+foot -e ${session_bin} || foot &
 EOF
   c_ok "labwc の autostart に Vault シェル"
 
