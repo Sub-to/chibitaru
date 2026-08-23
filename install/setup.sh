@@ -119,6 +119,9 @@ step_packages() {
     labwc foot seatd
     # 音
     pipewire pipewire-pulse wireplumber
+    # 音の道具。これがないとマイクの有無すら確かめられない。
+    # 実機で arecord がなく「録音デバイス0件」と誤判定した。
+    alsa-utils pipewire-audio
     # 見る・聴く
     firefox-esr mpv yt-dlp mpd mpc
     # 動画のハードウェアデコード。世代ごとに使うドライバが違う:
