@@ -5,6 +5,7 @@
 #   chibitaru-listen -s 10     10 秒録音して書き起こす
 #   chibitaru-listen --stdout  Vault に書かず、画面に出すだけ
 #   chibitaru-listen -y        確認せずに Vault へ書く
+#   chibitaru-listen --level   書き起こさず音量だけ見る（調整用）
 #
 # 常時聞き耳を立てない。押している間だけ録音する。省電力のためでも
 # あるが、それ以上に「いつ録っているか分からない機械」を持ち歩きたく
@@ -15,11 +16,13 @@ set -euo pipefail
 SECONDS_LIMIT=""
 TO_STDOUT=false
 NO_ASK=false
+LEVEL_ONLY=false
 while [ $# -gt 0 ]; do
   case "$1" in
     -s|--seconds) SECONDS_LIMIT="${2:-}"; shift 2 ;;
     --stdout)     TO_STDOUT=true; shift ;;
     -y|--yes)     NO_ASK=true; shift ;;
+    --level)      LEVEL_ONLY=true; SECONDS_LIMIT="${SECONDS_LIMIT:-5}"; shift ;;
     -h|--help)    sed -n '2,10p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *) echo "知らない指定: $1" >&2; exit 1 ;;
   esac
@@ -84,11 +87,38 @@ PY
 )
 RMS=${LEVEL%% *}; PEAK=${LEVEL##* }
 
-# マイクの増幅を実測で 50% に落としたあと、環境音は RMS 600 前後に
-# なった。声はこれよりはっきり大きいので 1500 に門を置く。
-# 増幅を変えたらこの値も見直すこと（片方だけ動かすと合わなくなる）。
-if [ "$RMS" -lt 1500 ]; then
-  echo "  声が入っていません（音量 ${RMS} / 目安 1500以上）" >&2
+# ── 調整用: 数字だけ見せて終わる ──────────────────────────
+# 環境も声の大きさも人と部屋で違う。こちらで固定値を当てるより、
+# 実際に話して測ってもらうほうが早い。
+if $LEVEL_ONLY; then
+  vol=$(wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null | awk "{print \$2}")
+  echo ""
+  echo "  マイク音量  ${vol:-?}"
+  echo "  RMS        ${RMS}"
+  echo "  頂点       ${PEAK} / 32767"
+  echo ""
+  if [ "$PEAK" -ge 32700 ]; then
+    echo "  → 割れています。音量を下げてください:"
+    echo "      wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 40%"
+  elif [ "$PEAK" -lt 3000 ]; then
+    echo "  → 小さすぎます。音量を上げてください:"
+    echo "      wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 80%"
+  else
+    echo "  → ちょうどよい範囲です（頂点 3000〜30000）"
+  fi
+  echo ""
+  echo "  話した時の RMS を控えておくと、聞き取りの門を合わせられます。"
+  echo ""
+  exit 0
+fi
+
+# 門の高さ。環境音は部屋と時間で大きく変わる（同じ機体で RMS 322 と
+# 2618 を観測した）ので、決め打ちの値は当てにならない。
+# 既定は控えめにし、合わなければ CHIBITARU_MIC_GATE で変えられるように
+# しておく。自分の声の RMS は chibitaru-listen --level で測れる。
+GATE="${CHIBITARU_MIC_GATE:-400}"
+if [ "$RMS" -lt "$GATE" ]; then
+  echo "  声が入っていません（音量 ${RMS} / 目安 ${GATE}以上）" >&2
   echo "  マイクに近づくか、もう少しはっきり話してください" >&2
   exit 1
 fi
