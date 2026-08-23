@@ -67,7 +67,10 @@ def act_volume(text: str) -> tuple[int, str]:
         wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "0")
         return 0, "音を戻しました"
     elif re.search(r"(上げ|大きく|でかく|あげ)", text):
-        target = min(150, now + VOL_STEP)
+        # 100% を超えると割れる。数字で指定された時だけ超えさせる。
+        target = min(100, now + VOL_STEP)
+        if now >= 100:
+            return 0, "もう最大です"
     elif re.search(r"(下げ|小さく|さげ)", text):
         target = max(0, now - VOL_STEP)
     else:
@@ -93,10 +96,22 @@ def act_music(text: str) -> tuple[int, str]:
     if re.search(r"(一時|ポーズ)", text):
         sh("mpc", "toggle")
         return 0, "一時停止しました"
+    # 入っている曲がなければ、鳴らせない理由を言う。
+    # mpc play は曲がなくても成功を返し、状態だけを出してくる。
+    _, listed = sh("mpc", "playlist")
+    if not listed.strip():
+        _, allsongs = sh("mpc", "listall")
+        if not allsongs.strip():
+            return 1, "音楽が見つかりません。~/音楽 に入れてください"
+        sh("mpc", "add", "/")
     rc, out = sh("mpc", "play")
     if rc != 0:
         return 1, "音楽を鳴らせませんでした"
-    first = out.splitlines()[0] if out.strip() else ""
+    first = ""
+    for line in out.splitlines():
+        if line.strip() and not line.startswith(("volume:", "[")):
+            first = line.strip()[:40]
+            break
     return 0, f"音楽を流します {first}".strip()
 
 
