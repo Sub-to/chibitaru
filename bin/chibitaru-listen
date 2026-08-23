@@ -149,6 +149,12 @@ if [ "$PEAK" -ge 32700 ]; then
 fi
 
 # ── 書き起こし ────────────────────────────────────────────
+# -bo 1 -bs 1 で候補を絞る。実機で測ったところ出力は一字一句同じで
+# 10% 速くなった。読み込みは 102ms しかかからないので、常駐させても
+# 速くはならない（待機 0MB のままでよい）。
+#
+# なお whisper は音声を 30 秒の塊に揃えて処理するので、5 秒の録音でも
+# 30 秒ぶんの計算がかかる。短く録っても速くならない。
 echo "  書き起こし中…"
 start=$(date +%s)
 # whisper は話し声でない音に (音楽) (拍手) [BLANK_AUDIO] のような注釈を返す。
@@ -156,7 +162,8 @@ start=$(date +%s)
 TEXT=$("$CHIBITARU_WHISPER_BIN" \
         -m "$CHIBITARU_WHISPER_MODEL" \
         -f "$WAV" -l ja -nt -np -t "$(nproc)" \
-        -nth 0.3 -lpt -0.5 -et 2.0 2>/dev/null \
+        -nth 0.3 -lpt -0.5 -et 2.0 \
+        -bo 1 -bs 1 2>/dev/null \
        | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
        | grep -vE '^$' \
        | grep -vE '^[（(\[].{0,12}[）)\]]$' \

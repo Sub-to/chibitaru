@@ -74,7 +74,13 @@ def battery() -> tuple[int | None, float | None, str]:
 
 
 def wifi() -> tuple[str | None, int | None]:
-    """つないでいる口の名前と信号強度(dBm)。"""
+    """
+    つないでいる口の名前と、電波の強さ(0〜100%)。
+
+    dBm をそのまま出すと -48 のような負の数になり、良いのか悪いのか
+    分かりにくい。カーネルが出す品質値（0〜70）を割合に直して返す。
+    他の計器と単位が揃うので読みやすい。
+    """
     try:
         lines = Path("/proc/net/wireless").read_text().splitlines()[2:]
     except OSError:
@@ -85,13 +91,14 @@ def wifi() -> tuple[str | None, int | None]:
             continue
         name = parts[0].rstrip(":")
         try:
-            level = int(float(parts[3]))
+            quality = float(parts[2].rstrip("."))
+            level = float(parts[3].rstrip("."))
         except ValueError:
             continue
         # 圏外は 0 や -256 が出る。つないでいないものは出さない。
-        if level in (0, -256):
+        if level in (0, -256) or quality <= 0:
             continue
-        return name, level
+        return name, max(0, min(100, round(quality / 70 * 100)))
     return None, None
 
 
@@ -318,12 +325,14 @@ class TopBar(Horizontal):
             end = "[/]" if col else ""
             parts.append(f"{col}{mark} {pct}%{end}")
 
-        name, level = wifi()
+        name, strength = wifi()
         if name:
-            # -50 以上は強い、-70 以下は弱い、という一般的な目安
-            icon = "▂▄▆" if level > -55 else ("▂▄" if level > -70 else "▂")
-            parts.append(f"{icon} {level}")
+            # 弱くなったら色を変える。切れる前に気づけるように。
+            col = "[$error]" if strength < 30 else (
+                "[$warning]" if strength < 50 else "")
+            end = "[/]" if col else ""
+            parts.append(f"電波 {col}{strength}%{end}")
         else:
-            parts.append("[dim]圏外[/]")
+            parts.append("[dim]電波 圏外[/]")
 
         return "  │  ".join(parts)
