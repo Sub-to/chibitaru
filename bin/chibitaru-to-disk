@@ -5,16 +5,22 @@
 # インストーラを起動し直す必要はない。設定もテーマも済んだ状態が
 # そのまま移る。
 #
-#   chibitaru-to-disk /dev/sda          何をするか見せるだけ（消さない）
-#   chibitaru-to-disk /dev/sda --yes    実行する
+#   chibitaru-to-disk /dev/sda            何をするか見せるだけ（消さない）
+#   chibitaru-to-disk /dev/sda --yes      新規に作る（中身は消える）
+#   chibitaru-to-disk /dev/sda --update   作り直さず差分だけ送る
 #
-# ⚠ 指定したディスクの中身は完全に消える。
+# ⚠ --yes は指定したディスクの中身を完全に消す。
+#    --update は消さない。既に入れてある先へ変更分を送るだけ。
 #
 set -euo pipefail
 
 TARGET="${1:-}"
 CONFIRM=false
-[ "${2:-}" = "--yes" ] && CONFIRM=true
+UPDATE=false
+for a in "$@"; do
+  [ "$a" = "--yes" ]    && CONFIRM=true
+  [ "$a" = "--update" ] && UPDATE=true
+done
 
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
 c_ok()   { printf "    \033[32m*\033[0m %s\n" "$*"; }
@@ -49,6 +55,44 @@ MODEL=$(lsblk -dno MODEL "$TARGET" | tr -s ' ')
 
 [ "$TARGET_SIZE" -gt $(( USED_GB + 4 )) ] \
   || c_die "$TARGET が小さすぎます（${TARGET_SIZE}GB / 必要 $((USED_GB + 4))GB）"
+
+# ═══════════════════════════════════════════════════════════
+# --update : 作り直さず、差分だけ送る
+# ═══════════════════════════════════════════════════════════
+if $UPDATE; then
+  PART="${TARGET}1"
+  [ -b "$PART" ] || c_die "$PART がありません（先に --yes で作ってください）"
+  MNT=/mnt/chibitaru-install
+  mkdir -p "$MNT"
+  mount "$PART" "$MNT" || c_die "$PART をマウントできません"
+  [ -d "$MNT/opt/chibitaru" ] \
+    || { umount "$MNT"; c_die "$PART に Chibitaru が入っていません"; }
+
+  c_head "差分を送る（作り直しません）"
+  # fstab と GRUB の設定は複製先固有のもの。上書きすると起動しなくなる。
+  rsync -aHAXx --delete \
+    --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' \
+    --exclude='/tmp/*'  --exclude='/run/*'  --exclude='/mnt/*' \
+    --exclude='/media/*' --exclude='/lost+found' --exclude='/swapfile' \
+    --exclude='/etc/fstab' --exclude='/etc/fstab.*' \
+    --exclude='/boot/grub/grub.cfg' --exclude='/boot/grub/grubenv' \
+    / "$MNT/" 2>&1 | tail -2
+  c_ok "同期完了"
+
+  # 送ったあと、複製先の fstab がまだ自分の UUID を指しているか確かめる
+  want=$(blkid -s UUID -o value "$PART")
+  got=$(awk '$2=="/" && $1 !~ /^#/ {print $1}' "$MNT/etc/fstab" | head -1)
+  if [ "$got" = "UUID=$want" ]; then
+    c_ok "fstab は複製先の UUID のまま（$want）"
+  else
+    umount "$MNT"
+    c_die "fstab が複製先を指していません（$got）。起動しなくなるため中断"
+  fi
+
+  sync; umount "$MNT" 2>/dev/null || umount -l "$MNT"
+  printf "\n  完了しました。次の起動から反映されます。\n\n"
+  exit 0
+fi
 
 # ═══════════════════════════════════════════════════════════
 c_head "これから行うこと"
