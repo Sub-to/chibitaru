@@ -93,10 +93,15 @@ fi
 # ── 書き起こし ────────────────────────────────────────────
 echo "  書き起こし中…"
 start=$(date +%s)
+# whisper は話し声でない音に (音楽) (拍手) [BLANK_AUDIO] のような注釈を返す。
+# それはノートに書くべき内容ではないので、注釈だけの行は落とす。
 TEXT=$("$CHIBITARU_WHISPER_BIN" \
         -m "$CHIBITARU_WHISPER_MODEL" \
         -f "$WAV" -l ja -nt -np -t "$(nproc)" 2>/dev/null \
-       | sed 's/^[[:space:]]*//' | grep -v '^$' || true)
+       | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+       | grep -vE '^$' \
+       | grep -vE '^[（(\[].{0,12}[）)\]]$' \
+       | grep -vE '^[♪♬~ー・…\.]+$' || true)
 took=$(( $(date +%s) - start ))
 
 if [ -z "$TEXT" ]; then
