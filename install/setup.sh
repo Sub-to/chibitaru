@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo install theme vault music session report)
+STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo install theme vault music ime session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -157,6 +157,9 @@ step_packages() {
     # TUI シェル。端末エミュレータは自前で持たず tmux に任せるので、
     # 下のペインでは vim も htop も普通に動く。
     python3-textual tmux
+    # 日本語入力。この OS は日本語で書くためのものなので、
+    # 打てないままでは成立しない。実測 45MB（fcitx5 28 + mozc 17）。
+    fcitx5 fcitx5-mozc fcitx5-frontend-gtk3
     # 日本語と記号
     # fonts-noto-cjk に絵文字は入っていない。入れないと 🎤 や 🔵 が
     # 豆腐になる（VM の画面で確認）。ウェブページにも絵文字は出るので
@@ -629,6 +632,74 @@ EOF
     fi
   else
     c_skip "mpd の有効化（systemd なし）"
+  fi
+}
+
+# ═══════════════════════════════════════════════════════════
+step_ime() {
+  c_head "日本語入力（fcitx5-mozc）"
+  command -v fcitx5 >/dev/null || { c_warn "fcitx5 が入っていない"; return 0; }
+
+  # labwc 0.8.3 は入力メソッドの中継を実装しており、foot は
+  # text-input-v3 に対応している。両方そろっているので、
+  # Wayland のまま追加のブリッジなしで通る。
+  mkuserdir "${TARGET_HOME}/.config/fcitx5/conf"
+
+  install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 644 /dev/stdin \
+    "${TARGET_HOME}/.config/fcitx5/profile" <<'EOF'
+# install/setup.sh が生成
+[Groups/0]
+Name=Default
+Default Layout=jp
+DefaultIM=mozc
+
+[Groups/0/Items/0]
+Name=keyboard-jp
+Layout=
+
+[Groups/0/Items/1]
+Name=mozc
+Layout=
+
+[GroupOrder]
+0=Default
+EOF
+
+  # 切り替えキー。半角/全角 と Ctrl+Space の両方を受ける。
+  # 日本語キーボードの人は前者、そうでない人は後者を使う。
+  install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 644 /dev/stdin \
+    "${TARGET_HOME}/.config/fcitx5/config" <<'EOF'
+# install/setup.sh が生成
+[Hotkey/TriggerKeys]
+0=Zenkaku_Hankaku
+1=Control+space
+
+[Hotkey]
+EnumerateWithTriggerKeys=True
+
+[Behavior]
+ActiveByDefault=False
+ShowInputMethodInformation=True
+EOF
+  c_ok "mozc を既定に（切替は 半角/全角 か Ctrl+Space）"
+
+  # GTK のアプリ（Firefox など）向け。Wayland 対応のものは
+  # text-input-v3 を直接使うが、そうでないものへの保険。
+  install -D -m 644 /dev/stdin /etc/profile.d/chibitaru-ime.sh <<'EOF'
+# install/setup.sh が生成
+export GTK_IM_MODULE=fcitx
+export QT_IM_MODULE=fcitx
+export XMODIFIERS=@im=fcitx
+EOF
+  c_ok "GTK/Qt 向けの設定も配置"
+
+  # labwc が上がったあとに起こす
+  local auto="${TARGET_HOME}/.config/labwc/autostart"
+  if [ -f "$auto" ] && ! grep -q "fcitx5" "$auto"; then
+    printf '%s\n' "fcitx5 -d &" >> "$auto"
+    c_ok "画面と一緒に起動するようにした"
+  else
+    c_ok "既に autostart に入っている"
   fi
 }
 
