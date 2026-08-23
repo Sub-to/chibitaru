@@ -59,6 +59,37 @@ fi
 
 [ -s "$WAV" ] || { echo "  録音できませんでした（マイクを確認してください）" >&2; exit 1; }
 
+# ── 声が入っているか確かめる ──────────────────────────────
+# whisper は無音や雑音だけを渡されると、それらしい文を作り出す。
+# 実機で環境音に対して「こんにちは、こんにちは」を延々と返した。
+# それが Vault に残ると、言っていないことがノートに書かれてしまう。
+# 全体の音量（RMS）で門を作る。頂点だけ見るとマイクの歪みに騙される。
+LEVEL=$(python3 - "$WAV" <<'PY'
+import array, sys, wave
+try:
+    w = wave.open(sys.argv[1])
+    a = array.array("h")
+    a.frombytes(w.readframes(w.getnframes()))
+    if not a:
+        print("0 0"); raise SystemExit
+    rms = (sum(x * x for x in a) / len(a)) ** 0.5
+    peak = max(abs(x) for x in a)
+    print(f"{rms:.0f} {peak}")
+except Exception:
+    print("0 0")
+PY
+)
+RMS=${LEVEL%% *}; PEAK=${LEVEL##* }
+
+if [ "$RMS" -lt 300 ]; then
+  echo "  声が入っていません（音量 ${RMS}）。マイクと話す距離を確認してください" >&2
+  exit 1
+fi
+if [ "$PEAK" -ge 32700 ]; then
+  echo "  ⚠ 音が割れています。マイクの音量を下げると精度が上がります:"
+  echo "      wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 60%"
+fi
+
 # ── 書き起こし ────────────────────────────────────────────
 echo "  書き起こし中…"
 start=$(date +%s)

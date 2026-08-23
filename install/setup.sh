@@ -645,6 +645,21 @@ EOF
 EOF
   c_ok "端末は装飾なしで全画面"
 
+  # マイクの初期音量。実機で 100% だと環境音でも波形が割れ、
+  # 音声認識が幻聴を起こした。60% から始める。
+  install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 755 /dev/stdin \
+    "${TARGET_HOME}/.config/chibitaru-mic.sh" <<'EOF'
+#!/bin/sh
+# install/setup.sh が生成。labwc の autostart から呼ばれる。
+# 100% だと環境音で波形が割れ、音声認識が幻聴を起こす。
+wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 60% 2>/dev/null || true
+EOF
+  if ! grep -q "chibitaru-mic" "${TARGET_HOME}/.config/labwc/autostart" 2>/dev/null; then
+    printf '%s\n' "\$HOME/.config/chibitaru-mic.sh &" \
+      >> "${TARGET_HOME}/.config/labwc/autostart"
+  fi
+  c_ok "マイクの初期音量を 60% に"
+
   svc daemon-reload
 }
 
