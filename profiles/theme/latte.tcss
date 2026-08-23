@@ -41,6 +41,7 @@ Footer { border-top: solid #acb0be; height: 2; }
 NewsTicker {
     height: 1;
     background: #e6e9ef; color: #d20f39;
+    text-style: bold;
 }
 
 /* 三つの列 — 左は蔵、真ん中は本文か AI、右は計器とボタン */
@@ -50,8 +51,8 @@ NewsTicker {
 
 /* AI の居場所 */
 #ai { width: 1fr; height: 1fr; }
-#ring { height: 1fr; color: #1e66f5; content-align: center middle; }
-#ai-log { height: 7; padding: 0 1; color: #5c5f77; }
+#ring { height: 1fr; padding-top: 2; color: #1e66f5; content-align: center middle; }
+#ai-log { height: 5; padding: 0 1; color: #5c5f77; }
 
 /* 計器 — 見るだけ。つまみは置かない（調整は声で） */
 .panel-title { color: #8c8fa1; }
