@@ -4,6 +4,7 @@
 #   chibitaru-listen           Enter を押すまで録音し、書き起こす
 #   chibitaru-listen -s 10     10 秒録音して書き起こす
 #   chibitaru-listen --stdout  Vault に書かず、画面に出すだけ
+#   chibitaru-listen -y        確認せずに Vault へ書く
 #
 # 常時聞き耳を立てない。押している間だけ録音する。省電力のためでも
 # あるが、それ以上に「いつ録っているか分からない機械」を持ち歩きたく
@@ -13,10 +14,12 @@ set -euo pipefail
 
 SECONDS_LIMIT=""
 TO_STDOUT=false
+NO_ASK=false
 while [ $# -gt 0 ]; do
   case "$1" in
     -s|--seconds) SECONDS_LIMIT="${2:-}"; shift 2 ;;
     --stdout)     TO_STDOUT=true; shift ;;
+    -y|--yes)     NO_ASK=true; shift ;;
     -h|--help)    sed -n '2,10p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *) echo "知らない指定: $1" >&2; exit 1 ;;
   esac
@@ -81,8 +84,12 @@ PY
 )
 RMS=${LEVEL%% *}; PEAK=${LEVEL##* }
 
-if [ "$RMS" -lt 300 ]; then
-  echo "  声が入っていません（音量 ${RMS}）。マイクと話す距離を確認してください" >&2
+# 実機で環境音だけの録音を測ると RMS 300〜2100 だった。300 では
+# 素通りしてしまい、whisper がその雑音から文章を作り出した。
+# 会話の声はこれよりはっきり大きいので、間を取って 2500 に置く。
+if [ "$RMS" -lt 2500 ]; then
+  echo "  声が入っていません（音量 ${RMS} / 目安 2500以上）" >&2
+  echo "  マイクに近づくか、もう少しはっきり話してください" >&2
   exit 1
 fi
 if [ "$PEAK" -ge 32700 ]; then
@@ -97,7 +104,8 @@ start=$(date +%s)
 # それはノートに書くべき内容ではないので、注釈だけの行は落とす。
 TEXT=$("$CHIBITARU_WHISPER_BIN" \
         -m "$CHIBITARU_WHISPER_MODEL" \
-        -f "$WAV" -l ja -nt -np -t "$(nproc)" 2>/dev/null \
+        -f "$WAV" -l ja -nt -np -t "$(nproc)" \
+        -nth 0.3 -lpt -0.5 -et 2.0 2>/dev/null \
        | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
        | grep -vE '^$' \
        | grep -vE '^[（(\[].{0,12}[）)\]]$' \
@@ -115,6 +123,20 @@ echo ""
 echo "  （${took}秒）"
 
 $TO_STDOUT && exit 0
+
+# ── 書く前に見せる ────────────────────────────────────────
+# whisper は雑音から、それらしい文を作り出すことがある。実機で
+# 環境音から「これがシンクとかの…」という架空の文が出た。
+# この OS は書き起こしをノートに残すので、黙って書くと言っていない
+# ことが記録される。押して録る使い方である以上、目の前にいるはずなので
+# 一度見せて決めてもらう。
+if ! $NO_ASK; then
+  printf "  Vault に残しますか？ [Y/n] "
+  read -r ans </dev/tty || ans=y
+  case "${ans:-y}" in
+    [nN]*) echo "  残しませんでした"; exit 0 ;;
+  esac
+fi
 
 # ── Vault に残す ──────────────────────────────────────────
 # この OS で起きたことは Markdown になって残る、という原則どおり。
