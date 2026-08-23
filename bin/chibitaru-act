@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 VOL_STEP = 10
+VOL_STEP_BIG = 25    # 「もっと」と言われた時
 
 
 def sh(*args: str, timeout: int = 5) -> tuple[int, str]:
@@ -66,15 +67,21 @@ def act_volume(text: str) -> tuple[int, str]:
     elif re.search(r"(戻|解除|つけ)", text) and "ミュート" in text:
         wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "0")
         return 0, "音を戻しました"
-    elif re.search(r"(上げ|大きく|でかく|あげ)", text):
-        # 100% を超えると割れる。数字で指定された時だけ超えさせる。
-        target = min(100, now + VOL_STEP)
-        if now >= 100:
-            return 0, "もう最大です"
-    elif re.search(r"(下げ|小さく|さげ)", text):
-        target = max(0, now - VOL_STEP)
     else:
-        return 0, f"いまの音量は {now}% です"
+        # 「もっと」と言われたら大きく動かす。10% ずつでは、言い直す
+        # たびに同じだけしか変わらず、伝わっていないように感じる。
+        step = VOL_STEP_BIG if re.search(r"(もっと|ずっと|もう少し|かなり)", text) else VOL_STEP
+        if re.search(r"(上げ|大きく|でかく|あげ)", text):
+            # 100% を超えると割れる。数字で指定された時だけ超えさせる。
+            if now >= 100:
+                return 0, "もう最大です"
+            target = min(100, now + step)
+        elif re.search(r"(下げ|小さく|さげ|抑え)", text):
+            if now <= 0:
+                return 0, "もう最小です"
+            target = max(0, now - step)
+        else:
+            return 0, f"いまの音量は {now}% です"
 
     wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "0")
     rc, err = wpctl("set-volume", "@DEFAULT_AUDIO_SINK@", f"{target}%")
@@ -165,7 +172,11 @@ RULES = [
     # 危ないものは実行せず、確認を求める（戻り値 3）
     ("power",  r"(電源|でんげん|シャットダウン|終了して|切って)", None),
     ("reboot", r"(再起動|リブート|立ち上げ直)", None),
-    ("volume", r"(音量|ボリューム|音を|ミュート|うるさ|聞こえ)", act_volume),
+    # 温度は変えられないので、「温度を下げて」と聞こえたら音量の
+    # 言い間違いとして扱う。実機で whisper が実際にそう間違えた。
+    # 同じ理由で「照度」「湿度」なども音量に寄せる。
+    ("volume", r"(音量|ボリューム|ボリウム|音を|音が|ミュート|うるさ|聞こえ|"
+               r"温度|おんど|照度|湿度)", act_volume),
     ("music",  r"(音楽|曲|再生|流して|止めて|次の曲|前の曲)", act_music),
     ("note",   r"(日記|ノート|メモ|書き留め)", act_note),
     ("status", r"(状態|どう|残り|バッテリ|電池|メモリ|記憶)", act_status),
@@ -176,6 +187,10 @@ def decide(text: str) -> tuple[str, object]:
     for name, pattern, fn in RULES:
         if re.search(pattern, text):
             return name, fn
+    # 何を、が抜けた「下げて」「上げて」。この画面で上げ下げするものは
+    # 音量しかないので、そう受け取る。聞き返すより早い。
+    if re.search(r"(上げ|下げ|大きく|小さく|あげ|さげ)", text):
+        return "volume", act_volume
     return "unknown", None
 
 

@@ -235,14 +235,16 @@ class Mixer(Vertical):
         self._vol_cache = volume()
 
     def tick(self) -> None:
+        # 棒より数字。棒は「だいたい」しか分からず、いくつなのかを
+        # 声で言う時に困る（実機で「いま何%か言えない」となった）。
         v = self._vol_cache
         self.query_one("#m-vol", Label).update(
-            f"音量 {bar(v, 5)}" if v is not None else "音量 ──")
+            f"音量  {v*100:3.0f}%" if v is not None else "音量   ──")
         c = self._cpu.percent()
-        self.query_one("#m-cpu", Label).update(f"演算 {bar(c/100, 5)}")
+        self.query_one("#m-cpu", Label).update(f"演算  {c:3d}%")
         used, total = memory()
-        self.query_one("#m-mem", Label).update(
-            f"記憶 {bar(used/total if total else 0, 5)}")
+        pct = round(100 * used / total) if total else 0
+        self.query_one("#m-mem", Label).update(f"記憶  {pct:3d}%  {used:.1f}G")
         t = temperature()
         # 熱くなってきたら色を変える。古い機体は埃で温度が上がる。
         col = "" if t is None or t < 65 else ("[$warning]" if t < 80 else "[$error]")
