@@ -23,6 +23,16 @@ while [ $# -gt 0 ]; do
     --stdout)     TO_STDOUT=true; shift ;;
     -y|--yes)     NO_ASK=true; shift ;;
     --level)      LEVEL_ONLY=true; SECONDS_LIMIT="${SECONDS_LIMIT:-5}"; shift ;;
+    --save-gate)
+      # 測った値をこの機体に残す。次からこれを使う。
+      [ "$(id -u)" = 0 ] || { echo "root で実行してください" >&2; exit 1; }
+      install -d -m 755 /etc/chibitaru
+      cat > /etc/chibitaru/mic <<EOF
+# chibitaru-listen --save-gate が生成。実測にもとづく値。
+CHIBITARU_MIC_GATE=${2:-400}
+EOF
+      echo "  聞き取りの門を ${2:-400} に設定しました"
+      exit 0 ;;
     -h|--help)    sed -n '2,10p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *) echo "知らない指定: $1" >&2; exit 1 ;;
   esac
@@ -107,7 +117,13 @@ if $LEVEL_ONLY; then
     echo "  → ちょうどよい範囲です（頂点 3000〜30000）"
   fi
   echo ""
-  echo "  話した時の RMS を控えておくと、聞き取りの門を合わせられます。"
+  # 声と環境音の間に門を置く。対数の真ん中（相乗平均）を取ると、
+  # どちらからも同じ比率だけ離れる。片側に寄せると、静かな声を
+  # 弾くか、雑音を通すかのどちらかになる。
+  SUGGEST=$(python3 -c "print(int(($RMS * 90) ** 0.5))" 2>/dev/null || echo 400)
+  echo "  この声なら門は ${SUGGEST} あたりが妥当です。"
+  echo "  保存するには:"
+  echo "      sudo chibitaru-listen --save-gate ${SUGGEST}"
   echo ""
   exit 0
 fi
@@ -116,7 +132,12 @@ fi
 # 2618 を観測した）ので、決め打ちの値は当てにならない。
 # 既定は控えめにし、合わなければ CHIBITARU_MIC_GATE で変えられるように
 # しておく。自分の声の RMS は chibitaru-listen --level で測れる。
-GATE="${CHIBITARU_MIC_GATE:-400}"
+# 門は機体ごとに測って決める。--level で保存できる。
+GATE="${CHIBITARU_MIC_GATE:-}"
+if [ -z "$GATE" ] && [ -r /etc/chibitaru/mic ]; then
+  GATE=$(awk -F= '/^CHIBITARU_MIC_GATE=/{print $2}' /etc/chibitaru/mic)
+fi
+GATE="${GATE:-400}"
 if [ "$RMS" -lt "$GATE" ]; then
   echo "  声が入っていません（音量 ${RMS} / 目安 ${GATE}以上）" >&2
   echo "  マイクに近づくか、もう少しはっきり話してください" >&2
