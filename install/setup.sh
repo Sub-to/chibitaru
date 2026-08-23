@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo install theme vault session report)
+STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo install theme vault music session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -579,6 +579,57 @@ step_vault() {
     mkuserdir "$v/$d"
   done
   c_ok "$v （日記 / ノート / 会話 / 音声 / web / ops）"
+}
+
+# ═══════════════════════════════════════════════════════════
+step_music() {
+  c_head "音楽（mpd）"
+  # システム全体の mpd は使わない。あれは mpd ユーザーで動くため、
+  # 利用者の pipewire セッションに音を出せない。個人用に切り替える。
+  systemctl disable --now mpd.service mpd.socket >/dev/null 2>&1 || true
+  c_ok "システム全体の mpd は止めた"
+
+  local mus="${TARGET_HOME}/音楽"
+  mkuserdir "$mus"
+  mkuserdir "${TARGET_HOME}/.config/mpd"
+  mkuserdir "${TARGET_HOME}/.local/share/mpd/playlists"
+
+  install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 644 /dev/stdin \
+    "${TARGET_HOME}/.config/mpd/mpd.conf" <<EOF
+# install/setup.sh が生成
+music_directory     "${mus}"
+playlist_directory  "~/.local/share/mpd/playlists"
+db_file             "~/.local/share/mpd/database"
+state_file          "~/.local/share/mpd/state"
+sticker_file        "~/.local/share/mpd/sticker.sql"
+
+# 起動しっぱなしにしないので、状態はこまめに残す
+auto_update         "yes"
+restore_paused      "yes"
+
+audio_output {
+    type  "pipewire"
+    name  "Chibitaru"
+}
+EOF
+  c_ok "$mus を音楽フォルダに"
+
+  # ソケット起動にする。音楽を鳴らすまで mpd は動かないので、
+  # 使わない人は 25MB を払わずに済む。
+  if $HAS_SYSTEMD; then
+    local uid; uid=$(id -u "$TARGET_USER")
+    if [ -d "/run/user/$uid" ]; then
+      su - "$TARGET_USER" -c \
+        "XDG_RUNTIME_DIR=/run/user/$uid systemctl --user enable --now mpd.socket" \
+        >/dev/null 2>&1 \
+        && c_ok "mpd をソケット起動に（使うまで常駐しない）" \
+        || c_warn "mpd の有効化は次のログインから"
+    else
+      c_warn "セッションがないため、mpd の有効化は次のログインから"
+    fi
+  else
+    c_skip "mpd の有効化（systemd なし）"
+  fi
 }
 
 # ═══════════════════════════════════════════════════════════
