@@ -190,7 +190,7 @@ class ChibitaruTUI(App):
         Binding("slash", "search", "検索"),
         Binding("n", "today", "今日の日記"),
         Binding("r", "reload", "読み直す"),
-        Binding("q", "quit", "終了"),
+        Binding("q", "confirm_quit", "終了"),
     ]
 
     def __init__(self) -> None:
@@ -351,6 +351,30 @@ class ChibitaruTUI(App):
             except OSError:
                 continue
         return "\n".join(hits)
+
+    def action_confirm_quit(self) -> None:
+        """
+        一度で終わらせない。
+
+        この画面は Vault そのもので、消えると何も出ない黒い画面が残る。
+        実機で q を押して画面が消え、戻し方が分からなくなった。
+        キーひとつで到達できてよい状態ではない。
+        """
+        if getattr(self, "_quit_armed", False):
+            self.exit()
+            return
+        self._quit_armed = True
+        self.notify("もう一度 q で終了します（他のキーで取り消し）",
+                    timeout=4)
+        self.set_timer(4.0, self._disarm_quit)
+
+    def _disarm_quit(self) -> None:
+        self._quit_armed = False
+
+    def on_key(self, event) -> None:
+        # q 以外を押したら終了の構えを解く
+        if getattr(self, "_quit_armed", False) and event.key != "q":
+            self._quit_armed = False
 
     def action_reload(self) -> None:
         self.query_one("#tree", VaultTree).reload()

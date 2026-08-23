@@ -48,8 +48,21 @@ VAULT_PANE=$(tmux list-panes -t "$SESSION:vault" -F '#{pane_id}' | sed -n 1p)
 
 # TUI から下のシェルを動かせるようにペイン ID を渡す。
 # これで「e を押したら下のエディタで開く」ができる。
+# TUI が終わっても、黒いだけのペインを残さない。
+# 実機で q を押して画面が消え、戻し方が画面に出ていなかった。
+# 終わったことと戻し方を出し、Enter で開き直せるようにする。
 tmux send-keys -t "$VAULT_PANE" \
-  "clear && CHIBITARU_SHELL_PANE=$SHELL_PANE exec python3 $TUI" Enter
+  "clear && CHIBITARU_SHELL_PANE=$SHELL_PANE exec bash -c '
+     while :; do
+       CHIBITARU_SHELL_PANE=$SHELL_PANE python3 $TUI
+       echo
+       echo \"  Vault を閉じました。\"
+       echo \"    Enter  もう一度開く\"
+       echo \"    Ctrl-D この画面を閉じる（下のシェルは残ります）\"
+       echo
+       read -r || exit 0
+       clear
+     done'" Enter
 
 tmux send-keys -t "$SHELL_PANE" "clear" Enter
 
