@@ -39,21 +39,17 @@ NewsTicker {
     background: #181825; color: #f38ba8;
 }
 
-/* 左の列の操作盤 */
-.panel-title { color: #7f849c; }
-#mixer {
-    height: 7; padding: 0 1;
-    border-top: solid #313244;
+/* 計器と音楽 — 全幅の帯。画面が横に広く縦に短いため */
+#mixer, #music {
+    dock: bottom; height: 1;
+    background: #313244; color: #bac2de;
 }
-#mixer Label { color: #bac2de; }
-#music {
-    height: 4; padding: 0 1;
-    border-top: solid #313244;
-}
-#mu-title { color: #bac2de; }
-#mu-buttons { height: 1; }
+#mixer Label { width: auto; padding: 0 1; background: #313244; }
+#m-bat { width: 1fr; text-align: right; }
+#mu-title { width: 1fr; background: #313244; color: #bac2de; }
 .mu-btn {
-    width: 4; content-align: center middle;
-    color: #94e2d5;
+    width: 3; content-align: center middle;
+    color: #94e2d5; background: #313244;
 }
-.mu-btn:hover { background: #313244; }
+.mu-btn:hover { background: #7f849c; }
+#backlinks { height: 5; }

@@ -162,16 +162,17 @@ class ChibitaruTUI(App):
         yield TopBar()
         yield Input(placeholder="Vault を検索（Enter で実行、Esc で閉じる）", id="search")
         with Horizontal(id="body"):
-            # 左の列が操作盤。上から順に、見る・たどる・調整する・鳴らす。
             with Vertical(id="left"):
                 yield VaultTree(str(VAULT), id="tree")
                 with Vertical(id="backlinks"):
                     yield Label("ここへのリンク", id="backlinks-title")
                     yield ListView(id="backlist")
-                yield Mixer(id="mixer")
-                yield MusicBar(id="music")
             with Vertical(id="right"):
                 yield Markdown("", id="view")
+        # 計器と音楽は全幅の帯にする。画面が横に広く縦に短いので、
+        # 左の列に縦積みするとツリーが押し出される（実機で起きた）。
+        yield Mixer(id="mixer")
+        yield MusicBar(id="music")
         yield Footer()
 
     def on_mount(self) -> None:

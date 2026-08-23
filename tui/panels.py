@@ -209,11 +209,16 @@ class NewsTicker(Static):
 
 
 # ══════════════════════════════════════════════════════════
-class Mixer(Vertical):
-    """音量・CPU・メモリ・温度・電池を縦に並べる。"""
+class Mixer(Horizontal):
+    """
+    計器を一列に並べる。
+
+    実機の画面は 159桁 × 18行しかない（フォントを大きくしているため）。
+    横に広く縦に短いので、縦積みにすると本文が押し出される。実際に
+    ツリーが消えた。横長の帯に収める。
+    """
 
     def compose(self) -> ComposeResult:
-        yield Label("計器", classes="panel-title")
         yield Label("", id="m-vol")
         yield Label("", id="m-cpu")
         yield Label("", id="m-mem")
@@ -225,8 +230,7 @@ class Mixer(Vertical):
         self._vol_cache = volume()
         self.tick()
         self.set_interval(2.0, self.tick)
-        # 音量は外部コマンドを呼ぶので間隔を空ける
-        self.set_interval(6.0, self._refresh_volume)
+        self.set_interval(6.0, self._refresh_volume)   # 外部コマンドなので間隔を空ける
 
     def _refresh_volume(self) -> None:
         self._vol_cache = volume()
@@ -234,23 +238,21 @@ class Mixer(Vertical):
     def tick(self) -> None:
         v = self._vol_cache
         self.query_one("#m-vol", Label).update(
-            f"音量 {bar(v)} {v*100:3.0f}%" if v is not None else "音量 ──")
+            f"音量 {bar(v, 6)} {v*100:3.0f}%" if v is not None else "音量 ──")
 
         c = self._cpu.percent()
-        self.query_one("#m-cpu", Label).update(f"CPU  {bar(c/100)} {c:3d}%")
+        self.query_one("#m-cpu", Label).update(f"CPU {bar(c/100, 6)} {c:3d}%")
 
         used, total = memory()
-        ratio = used / total if total else 0
         self.query_one("#m-mem", Label).update(
-            f"RAM  {bar(ratio)} {used:.1f}G")
+            f"RAM {bar(used/total if total else 0, 6)} {used:.1f}/{total:.0f}G")
 
         t = temperature()
         # 熱くなってきたら色を変える。古い機体は埃で温度が上がる。
-        col = "" if t is None or t < 65 else (
-            "[$warning]" if t < 80 else "[$error]")
+        col = "" if t is None or t < 65 else ("[$warning]" if t < 80 else "[$error]")
         end = "" if not col else "[/]"
         self.query_one("#m-tmp", Label).update(
-            f"温度 {col}{t}°C{end}" if t is not None else "温度 ──")
+            f"{col}{t}°C{end}" if t is not None else "──")
 
         pct, volt, mark = battery()
         parts = []
@@ -261,21 +263,16 @@ class Mixer(Vertical):
         self.query_one("#m-bat", Label).update(" ".join(parts) or "電池 ──")
 
 
-# ══════════════════════════════════════════════════════════
-class MusicBar(Vertical):
+class MusicBar(Horizontal):
     """音楽の操作。mpd が動いていなくても画面は壊さない。"""
 
     def compose(self) -> ComposeResult:
-        yield Label("音楽", classes="panel-title")
+        yield Label("⏮", id="mu-prev", classes="mu-btn")
+        yield Label("⏵", id="mu-play", classes="mu-btn")
+        yield Label("⏸", id="mu-pause", classes="mu-btn")
+        yield Label("⏹", id="mu-stop", classes="mu-btn")
+        yield Label("⏭", id="mu-next", classes="mu-btn")
         yield Label("", id="mu-title")
-        yield Horizontal(
-            Label("⏮", id="mu-prev", classes="mu-btn"),
-            Label("⏵", id="mu-play", classes="mu-btn"),
-            Label("⏸", id="mu-pause", classes="mu-btn"),
-            Label("⏹", id="mu-stop", classes="mu-btn"),
-            Label("⏭", id="mu-next", classes="mu-btn"),
-            id="mu-buttons",
-        )
 
     def on_mount(self) -> None:
         self.tick()
@@ -284,15 +281,12 @@ class MusicBar(Vertical):
     def tick(self) -> None:
         out = mpc("status")
         lines = [l for l in out.splitlines() if l.strip()]
-        if not lines:
-            self.query_one("#mu-title", Label).update("[dim]止まっています[/]")
-            return
-        if "[playing]" in out or "[paused]" in out:
-            title = lines[0][:26]
+        label = self.query_one("#mu-title", Label)
+        if lines and ("[playing]" in out or "[paused]" in out):
             state = "再生中" if "[playing]" in out else "一時停止"
-            self.query_one("#mu-title", Label).update(f"{state} {title}")
+            label.update(f" {state}  {lines[0][:40]}")
         else:
-            self.query_one("#mu-title", Label).update("[dim]止まっています[/]")
+            label.update(" [dim]止まっています[/]")
 
     def on_click(self, event) -> None:
         # ボタンは Label なので、押された id で振り分ける
@@ -304,7 +298,6 @@ class MusicBar(Vertical):
             self.tick()
 
 
-# ══════════════════════════════════════════════════════════
 class TopBar(Horizontal):
     """左に状態、右に日付と時刻。"""
 
