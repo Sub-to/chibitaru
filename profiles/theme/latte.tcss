@@ -51,7 +51,7 @@ NewsTicker {
 
 /* AI の居場所 */
 #ai { width: 1fr; height: 1fr; }
-#ring { height: 1fr; padding-top: 2; color: #1e66f5; content-align: center middle; }
+#ring { height: 1fr; padding-top: 2; color: #1e66f5; }
 #ai-log { height: 5; padding: 0 1; color: #5c5f77; }
 
 /* 計器 — 見るだけ。つまみは置かない（調整は声で） */

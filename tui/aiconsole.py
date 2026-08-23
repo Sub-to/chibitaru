@@ -84,7 +84,10 @@ class Ring(Static):
             if col + 1 < w:
                 grid[mid][col + 1] = ""
 
-        return "\n".join("".join(r).rstrip() for r in grid)
+        # 末尾を削らない。行の長さが揃っていないと、中央揃えが
+        # 一番長い行を基準にしてしまい、円が横にずれる（実機でずれた）。
+        # 升目を最後まで埋めれば、格子の作り方どおり真ん中に来る。
+        return "\n".join("".join(r) for r in grid)
 
 
 class AIConsole(Vertical):
