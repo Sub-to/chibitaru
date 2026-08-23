@@ -99,8 +99,14 @@ echo "  文字サイズ ${size}"
 if $apply_now; then
   if pgrep -x labwc >/dev/null; then
     echo "  画面を開き直しています..."
+    # tmux ごと畳む。chibitaru-session は既存セッションがあれば
+    # 再接続するだけなので、端末を入れ替えても中の TUI は古い配色の
+    # ままになる。実機で実際にそうなった。
+    # 下のシェルの中身は失われるが、Vault はディスク上にあるので
+    # 失うのは打ちかけのコマンドくらい。
+    su - "$user" -c "tmux kill-session -t chibitaru" 2>/dev/null || true
     systemctl restart getty@tty1
-    echo "  完了"
+    echo "  完了（下のシェルは真っさらになります）"
   else
     echo "  画面が動いていないので、次の起動から反映されます"
   fi
