@@ -266,6 +266,21 @@ EOF
       /usr/sbin/swapoff "$sw" 2>/dev/null && c_ok "スワップを止めた: $sw" \
         || c_warn "止められなかった: $sw"
     done
+    # 休止状態からの復帰先も消す。ここを消し忘れると、initramfs が
+    # 存在しないスワップを探して 30 秒待ってから諦める。実機で
+    # 起動が 36 秒かかり、そのうち 31 秒がこれだった。
+    if grep -rqs "^RESUME=" /etc/initramfs-tools/conf.d/ 2>/dev/null; then
+      install -D -m 644 /dev/stdin /etc/initramfs-tools/conf.d/resume <<'EOF'
+# install/setup.sh が生成
+# スワップは zram（メモリ内）にしかない。休止状態からの復帰先は無い。
+# 存在しない領域を指したままだと、起動のたびに 30 秒待たされる。
+RESUME=none
+EOF
+      update-initramfs -u >/dev/null 2>&1 \
+        && c_ok "休止状態の復帰先を無効化（起動の30秒待ちを解消）" \
+        || c_warn "initramfs の更新に失敗"
+    fi
+
     # 再起動後に戻らないよう fstab からも外す。控えを取ってから。
     if grep -qE "^[^#].*\sswap\s" /etc/fstab; then
       cp -a /etc/fstab /etc/fstab.chibitaru-swap.bak
