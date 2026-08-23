@@ -32,3 +32,28 @@ TopBar { dock: top; height: 1; background: #313244; color: #bac2de; }
 /* コンソールとの境目に線を引く。ここが曖昧だと
    どこまでが Vault でどこからがシェルか分かりにくい。 */
 Footer { border-top: solid #585b70; height: 2; }
+
+/* お知らせ — 画面の一番上を右から左へ流れる */
+NewsTicker {
+    dock: top; height: 1;
+    background: #181825; color: #f38ba8;
+}
+
+/* 左の列の操作盤 */
+.panel-title { color: #7f849c; }
+#mixer {
+    height: 7; padding: 0 1;
+    border-top: solid #313244;
+}
+#mixer Label { color: #bac2de; }
+#music {
+    height: 4; padding: 0 1;
+    border-top: solid #313244;
+}
+#mu-title { color: #bac2de; }
+#mu-buttons { height: 1; }
+.mu-btn {
+    width: 4; content-align: center middle;
+    color: #94e2d5;
+}
+.mu-btn:hover { background: #313244; }

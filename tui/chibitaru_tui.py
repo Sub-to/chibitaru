@@ -29,13 +29,18 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 import unicodedata
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
+
+# panels は同じフォルダに置いてある
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from panels import Mixer, MusicBar, NewsTicker, TopBar  # noqa: E402
 from textual.widgets import (
     DirectoryTree,
     Footer,
@@ -129,54 +134,6 @@ class VaultTree(DirectoryTree):
                 yield p
 
 
-WEEKDAY = ("月", "火", "水", "木", "金", "土", "日")
-
-
-class TopBar(Horizontal):
-    """
-    画面のいちばん上。左に状態、右に日付と時刻。
-
-    下ではなく上に置いたのは、下は本物のシェルが占めていて
-    視線がそちらに行くため。常に見えていてほしいものは上に出す。
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Label("", id="top-state")
-        yield Label("", id="top-clock")
-
-    def on_mount(self) -> None:
-        self.tick()
-        # 秒は出さないので 10 秒ごとで足りる。無駄に起こさない。
-        self.set_interval(10.0, self.tick)
-
-    def tick(self) -> None:
-        self.query_one("#top-state", Label).update(self._state())
-        self.query_one("#top-clock", Label).update(self._clock())
-
-    def _clock(self) -> str:
-        now = datetime.now()
-        return (f"{now.year}-{now.month:02d}-{now.day:02d} "
-                f"({WEEKDAY[now.weekday()]}) {now.hour:02d}:{now.minute:02d} ")
-
-    def _state(self) -> str:
-        try:
-            info = {}
-            for line in Path("/proc/meminfo").read_text().splitlines():
-                k, _, v = line.partition(":")
-                info[k] = int(v.split()[0]) // 1024
-            total = info["MemTotal"]
-            used = total - info["MemAvailable"]
-            ratio = used / total if total else 0
-            # 空きが減ってきたら色で気づけるようにする。earlyoom が
-            # 何かを落とす前に、利用者が自分で閉じられるほうがよい。
-            color = "green" if ratio < 0.6 else "yellow" if ratio < 0.8 else "red"
-            mem = f"[{color}]RAM {used/1024:.1f}/{total/1024:.1f}G[/]"
-        except (OSError, KeyError, ValueError):
-            mem = "RAM ?"
-        notes = sum(1 for _ in VAULT.rglob("*.md")) if VAULT.is_dir() else 0
-        return f" Chibitaru {TIER}  │  ノート {notes}  │  {mem}"
-
-
 # ── 本体 ──────────────────────────────────────────────────
 class ChibitaruTUI(App):
     TITLE = "Chibitaru"
@@ -191,21 +148,28 @@ class ChibitaruTUI(App):
         Binding("n", "today", "今日の日記"),
         Binding("r", "reload", "読み直す"),
         Binding("q", "confirm_quit", "終了"),
+        Binding("space", "music_toggle", "再生/停止", show=False),
+        Binding("ctrl+q", "power_off", "電源"),
     ]
 
     def __init__(self) -> None:
         super().__init__()
         self.current: Path | None = None
+        self.tier = TIER          # 計器類が参照する
 
     def compose(self) -> ComposeResult:
+        yield NewsTicker(id="news")
         yield TopBar()
         yield Input(placeholder="Vault を検索（Enter で実行、Esc で閉じる）", id="search")
         with Horizontal(id="body"):
+            # 左の列が操作盤。上から順に、見る・たどる・調整する・鳴らす。
             with Vertical(id="left"):
                 yield VaultTree(str(VAULT), id="tree")
                 with Vertical(id="backlinks"):
                     yield Label("ここへのリンク", id="backlinks-title")
                     yield ListView(id="backlist")
+                yield Mixer(id="mixer")
+                yield MusicBar(id="music")
             with Vertical(id="right"):
                 yield Markdown("", id="view")
         yield Footer()
@@ -351,6 +315,27 @@ class ChibitaruTUI(App):
             except OSError:
                 continue
         return "\n".join(hits)
+
+    def action_music_toggle(self) -> None:
+        """再生と一時停止を入れ替える。ツリー操作の邪魔にならないよう
+        Space はフッタに出さない。"""
+        from panels import mpc
+        mpc("toggle")
+        self.query_one("#music", MusicBar).tick()
+
+    def action_power_off(self) -> None:
+        """
+        電源を切る。二度押しにする。
+
+        q と同じ理由で、ひと押しで到達してよい操作ではない。
+        """
+        if getattr(self, "_power_armed", False):
+            subprocess.run(["systemctl", "poweroff"], check=False)
+            return
+        self._power_armed = True
+        self.notify("もう一度 Ctrl+Q で電源を切ります", severity="warning",
+                    timeout=5)
+        self.set_timer(5.0, lambda: setattr(self, "_power_armed", False))
 
     def action_confirm_quit(self) -> None:
         """

@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""
+Vault シェルの計器類。
+
+数字は全部 /sys と /proc から直接読む。外部コマンドを毎秒呼ぶと、
+2 コアの古い機体では計器そのものが CPU を食う。
+"""
+
+from __future__ import annotations
+
+import subprocess
+import unicodedata
+from datetime import datetime
+from pathlib import Path
+
+from textual.app import ComposeResult
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Label, Static
+
+WEEKDAY = ("月", "火", "水", "木", "金", "土", "日")
+
+
+def dw(s: str) -> int:
+    """端末上の表示幅。日本語は 1 文字で 2 桁。"""
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+
+
+def bar(value: float, width: int = 8) -> str:
+    """0.0〜1.0 を棒にする。ミキサーの目盛りのつもり。"""
+    filled = max(0, min(width, round(value * width)))
+    return "▇" * filled + "░" * (width - filled)
+
+
+# ── 読み取り ──────────────────────────────────────────────
+def read_first(path: str, default=None):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return default
+
+
+def battery() -> tuple[int | None, float | None, str]:
+    """
+    残量(%)・電圧(V)・状態。
+
+    T440s は電池を 2 つ持つ（内蔵と着脱式）。合算して 1 つに見せる。
+    片方だけ見ると「98%」と出ているのに急に切れる、ということが起きる。
+    """
+    total_now = total_full = 0
+    volts, status = [], []
+    for b in sorted(Path("/sys/class/power_supply").glob("BAT*")):
+        now = read_first(f"{b}/energy_now") or read_first(f"{b}/charge_now")
+        full = read_first(f"{b}/energy_full") or read_first(f"{b}/charge_full")
+        if now and full:
+            total_now += int(now)
+            total_full += int(full)
+        v = read_first(f"{b}/voltage_now")
+        if v:
+            volts.append(int(v) / 1e6)
+        s = read_first(f"{b}/status")
+        if s:
+            status.append(s)
+
+    pct = round(100 * total_now / total_full) if total_full else None
+    volt = max(volts) if volts else None
+    if any(s == "Charging" for s in status):
+        mark = "充電"
+    elif Path("/sys/class/power_supply/AC/online").is_file() and \
+            read_first("/sys/class/power_supply/AC/online") == "1":
+        mark = "電源"
+    else:
+        mark = "電池"
+    return pct, volt, mark
+
+
+def wifi() -> tuple[str | None, int | None]:
+    """つないでいる口の名前と信号強度(dBm)。"""
+    try:
+        lines = Path("/proc/net/wireless").read_text().splitlines()[2:]
+    except OSError:
+        return None, None
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        name = parts[0].rstrip(":")
+        try:
+            level = int(float(parts[3]))
+        except ValueError:
+            continue
+        # 圏外は 0 や -256 が出る。つないでいないものは出さない。
+        if level in (0, -256):
+            continue
+        return name, level
+    return None, None
+
+
+def temperature() -> int | None:
+    """一番熱いところ。どのセンサが CPU かは機体で違うので最大を採る。"""
+    temps = []
+    for z in Path("/sys/class/thermal").glob("thermal_zone*/temp"):
+        v = read_first(str(z))
+        if v:
+            try:
+                t = int(v) / 1000
+                if 0 < t < 150:      # 明らかに嘘の値は捨てる
+                    temps.append(t)
+            except ValueError:
+                pass
+    return round(max(temps)) if temps else None
+
+
+class CPUMeter:
+    """/proc/stat の差分で使用率を出す。前回との差なので状態を持つ。"""
+
+    def __init__(self) -> None:
+        self._prev = self._read()
+
+    @staticmethod
+    def _read() -> tuple[int, int]:
+        try:
+            f = Path("/proc/stat").read_text().splitlines()[0].split()[1:]
+            vals = [int(x) for x in f]
+            idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+            return sum(vals), idle
+        except (OSError, ValueError, IndexError):
+            return 0, 0
+
+    def percent(self) -> int:
+        total, idle = self._read()
+        dt, di = total - self._prev[0], idle - self._prev[1]
+        self._prev = (total, idle)
+        if dt <= 0:
+            return 0
+        return max(0, min(100, round(100 * (dt - di) / dt)))
+
+
+def memory() -> tuple[float, float]:
+    """使用量と搭載量を GB で。"""
+    info = {}
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            k, _, v = line.partition(":")
+            info[k] = int(v.split()[0])
+    except (OSError, ValueError):
+        return 0.0, 0.0
+    total = info.get("MemTotal", 0) / 1048576
+    used = (info.get("MemTotal", 0) - info.get("MemAvailable", 0)) / 1048576
+    return used, total
+
+
+def volume() -> float | None:
+    """再生側の音量。wpctl は外部コマンドなので呼ぶ間隔を空ける。"""
+    try:
+        out = subprocess.run(
+            ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+            capture_output=True, text=True, timeout=2,
+        ).stdout
+        return float(out.split()[1])
+    except (FileNotFoundError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def mpc(*args: str) -> str:
+    """mpd を操作する。動いていなければ静かに諦める。"""
+    try:
+        return subprocess.run(["mpc", *args], capture_output=True,
+                              text=True, timeout=2).stdout
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return ""
+
+
+# ══════════════════════════════════════════════════════════
+class NewsTicker(Static):
+    """
+    右から左へ流れるお知らせ。
+
+    中身は /etc/chibitaru/news が持つ。情報源をあとで差し替えられる
+    ように、ここは「ファイルを読んで流す」だけにしてある。
+    """
+
+    SOURCE = Path("/etc/chibitaru/news")
+
+    def on_mount(self) -> None:
+        self._offset = 0
+        self._text = ""
+        self.load()
+        self.set_interval(0.4, self.scroll_step)   # 流れ
+        self.set_interval(60.0, self.load)         # 読み直し
+
+    def load(self) -> None:
+        try:
+            lines = [l.strip() for l in self.SOURCE.read_text().splitlines()
+                     if l.strip() and not l.startswith("#")]
+        except OSError:
+            lines = []
+        self._text = "　　◆　　".join(lines) if lines else ""
+
+    def scroll_step(self) -> None:
+        if not self._text:
+            self.update("")
+            return
+        # 端まで流れたら頭に戻す。連結して切り出すほうが実装が短い。
+        pad = "　" * 8
+        loop = self._text + pad
+        self._offset = (self._offset + 1) % len(loop)
+        shown = (loop + loop)[self._offset:self._offset + 60]
+        self.update(f" {shown}")
+
+
+# ══════════════════════════════════════════════════════════
+class Mixer(Vertical):
+    """音量・CPU・メモリ・温度・電池を縦に並べる。"""
+
+    def compose(self) -> ComposeResult:
+        yield Label("計器", classes="panel-title")
+        yield Label("", id="m-vol")
+        yield Label("", id="m-cpu")
+        yield Label("", id="m-mem")
+        yield Label("", id="m-tmp")
+        yield Label("", id="m-bat")
+
+    def on_mount(self) -> None:
+        self._cpu = CPUMeter()
+        self._vol_cache = volume()
+        self.tick()
+        self.set_interval(2.0, self.tick)
+        # 音量は外部コマンドを呼ぶので間隔を空ける
+        self.set_interval(6.0, self._refresh_volume)
+
+    def _refresh_volume(self) -> None:
+        self._vol_cache = volume()
+
+    def tick(self) -> None:
+        v = self._vol_cache
+        self.query_one("#m-vol", Label).update(
+            f"音量 {bar(v)} {v*100:3.0f}%" if v is not None else "音量 ──")
+
+        c = self._cpu.percent()
+        self.query_one("#m-cpu", Label).update(f"CPU  {bar(c/100)} {c:3d}%")
+
+        used, total = memory()
+        ratio = used / total if total else 0
+        self.query_one("#m-mem", Label).update(
+            f"RAM  {bar(ratio)} {used:.1f}G")
+
+        t = temperature()
+        # 熱くなってきたら色を変える。古い機体は埃で温度が上がる。
+        col = "" if t is None or t < 65 else (
+            "[$warning]" if t < 80 else "[$error]")
+        end = "" if not col else "[/]"
+        self.query_one("#m-tmp", Label).update(
+            f"温度 {col}{t}°C{end}" if t is not None else "温度 ──")
+
+        pct, volt, mark = battery()
+        parts = []
+        if pct is not None:
+            parts.append(f"{mark} {pct}%")
+        if volt is not None:
+            parts.append(f"{volt:.1f}V")
+        self.query_one("#m-bat", Label).update(" ".join(parts) or "電池 ──")
+
+
+# ══════════════════════════════════════════════════════════
+class MusicBar(Vertical):
+    """音楽の操作。mpd が動いていなくても画面は壊さない。"""
+
+    def compose(self) -> ComposeResult:
+        yield Label("音楽", classes="panel-title")
+        yield Label("", id="mu-title")
+        yield Horizontal(
+            Label("⏮", id="mu-prev", classes="mu-btn"),
+            Label("⏵", id="mu-play", classes="mu-btn"),
+            Label("⏸", id="mu-pause", classes="mu-btn"),
+            Label("⏹", id="mu-stop", classes="mu-btn"),
+            Label("⏭", id="mu-next", classes="mu-btn"),
+            id="mu-buttons",
+        )
+
+    def on_mount(self) -> None:
+        self.tick()
+        self.set_interval(3.0, self.tick)
+
+    def tick(self) -> None:
+        out = mpc("status")
+        lines = [l for l in out.splitlines() if l.strip()]
+        if not lines:
+            self.query_one("#mu-title", Label).update("[dim]止まっています[/]")
+            return
+        if "[playing]" in out or "[paused]" in out:
+            title = lines[0][:26]
+            state = "再生中" if "[playing]" in out else "一時停止"
+            self.query_one("#mu-title", Label).update(f"{state} {title}")
+        else:
+            self.query_one("#mu-title", Label).update("[dim]止まっています[/]")
+
+    def on_click(self, event) -> None:
+        # ボタンは Label なので、押された id で振り分ける
+        wid = getattr(event.widget, "id", "") or ""
+        cmd = {"mu-prev": "prev", "mu-play": "play", "mu-pause": "toggle",
+               "mu-stop": "stop", "mu-next": "next"}.get(wid)
+        if cmd:
+            mpc(cmd)
+            self.tick()
+
+
+# ══════════════════════════════════════════════════════════
+class TopBar(Horizontal):
+    """左に状態、右に日付と時刻。"""
+
+    def compose(self) -> ComposeResult:
+        yield Label("", id="top-state")
+        yield Label("", id="top-clock")
+
+    def on_mount(self) -> None:
+        self.tick()
+        self.set_interval(10.0, self.tick)
+
+    def tick(self) -> None:
+        self.query_one("#top-state", Label).update(self._state())
+        now = datetime.now()
+        self.query_one("#top-clock", Label).update(
+            f"{now.year}-{now.month:02d}-{now.day:02d} "
+            f"({WEEKDAY[now.weekday()]}) {now.hour:02d}:{now.minute:02d} ")
+
+    def _state(self) -> str:
+        parts = [f" Chibitaru {self.app.tier}"]
+
+        pct, _, mark = battery()
+        if pct is not None:
+            # 残り少なくなったら色を変える。気づかず切れるのが一番困る。
+            col = "[$error]" if pct <= 15 else (
+                "[$warning]" if pct <= 30 else "")
+            end = "[/]" if col else ""
+            parts.append(f"{col}{mark} {pct}%{end}")
+
+        name, level = wifi()
+        if name:
+            # -50 以上は強い、-70 以下は弱い、という一般的な目安
+            icon = "▂▄▆" if level > -55 else ("▂▄" if level > -70 else "▂")
+            parts.append(f"{icon} {level}")
+        else:
+            parts.append("[dim]圏外[/]")
+
+        return "  │  ".join(parts)
