@@ -1,0 +1,25 @@
+/* Catppuccin Latte — 薄い青ベース（明るい） */
+Screen { layout: vertical; background: #eff1f5; color: #4c4f69; }
+#body  { height: 1fr; }
+#left  { width: 32; background: #e6e9ef; border-right: solid #ccd0da; }
+VaultTree { height: 1fr; background: #e6e9ef; color: #4c4f69; }
+VaultTree > .tree--cursor    { background: #1e66f5; color: #eff1f5; }
+VaultTree > .tree--highlight { background: #ccd0da; }
+#backlinks { height: 8; background: #e6e9ef; border-top: solid #ccd0da; padding: 0 1; }
+#backlinks-title { color: #8c8fa1; }
+#backlist { background: #e6e9ef; }
+#backlist > ListItem { background: #e6e9ef; color: #179299; }
+#backlist > ListItem.--highlight { background: #ccd0da; }
+#right { width: 1fr; background: #eff1f5; }
+Markdown { padding: 0 2; background: #eff1f5; color: #4c4f69; }
+MarkdownH1 { color: #1e66f5; text-style: bold; }
+MarkdownH2 { color: #7287fd; text-style: bold; }
+MarkdownH3 { color: #179299; }
+MarkdownBullet { color: #40a02b; }
+MarkdownFence { background: #e6e9ef; }
+StatusBar { dock: bottom; height: 1; background: #ccd0da; color: #5c5f77; }
+Footer { background: #e6e9ef; color: #6c6f85; }
+Footer > .footer--key { background: #1e66f5; color: #eff1f5; text-style: bold; }
+#search { display: none; dock: top; background: #ccd0da; color: #4c4f69; }
+#search.visible { display: block; }
+Toast { background: #ccd0da; color: #4c4f69; }

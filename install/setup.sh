@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman install vault session report)
+STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman install theme vault session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -430,6 +430,13 @@ step_podman() {
 command -v podman >/dev/null && ! command -v docker >/dev/null && alias docker=podman
 EOF
   c_ok "docker → podman の別名を設定"
+
+  # chibitaru-theme などを PATH から呼べるようにする
+  for b in /opt/chibitaru/bin/*; do
+    [ -x "$b" ] || continue
+    ln -sf "$b" "/usr/local/bin/$(basename "$b")"
+  done
+  c_ok "/usr/local/bin に chibitaru-* を通した"
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -470,6 +477,21 @@ step_install() {
   else
     c_die "TUI を置けませんでした"
   fi
+}
+
+# ═══════════════════════════════════════════════════════════
+step_theme() {
+  c_head "見た目（配色と文字サイズ）"
+  # 既に選んであればそれを尊重する。流し直しで好みが戻ると困る。
+  local t=mocha sz=14
+  if [ -r /etc/chibitaru/theme ]; then
+    t=$(awk -F= '/^CHIBITARU_THEME=/{print $2}' /etc/chibitaru/theme)
+    sz=$(awk -F= '/^CHIBITARU_FONT_SIZE=/{print $2}' /etc/chibitaru/theme)
+    c_ok "既存の設定を使う（${t} / ${sz}）"
+  fi
+  CHIBITARU_USER="$TARGET_USER" bash /opt/chibitaru/bin/chibitaru-theme \
+    "${t:-mocha}" --size "${sz:-14}" | sed 's/^/  /'
+  c_ok "chibitaru-theme で後から変えられる"
 }
 
 # ═══════════════════════════════════════════════════════════

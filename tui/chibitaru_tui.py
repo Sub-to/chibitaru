@@ -86,6 +86,26 @@ def load_profile() -> dict:
     return conf
 
 
+def _theme_path() -> str:
+    """
+    /etc/chibitaru/theme で選ばれた配色ファイルを返す。
+    無ければ mocha に落ちる（設定が壊れていても画面は出す）。
+    """
+    name = "mocha"
+    conf = Path("/etc/chibitaru/theme")
+    if conf.is_file():
+        for line in conf.read_text().splitlines():
+            if line.startswith("CHIBITARU_THEME="):
+                cand = line.partition("=")[2].strip()
+                if cand:
+                    name = cand
+    here = Path(__file__).resolve().parent.parent / "profiles" / "theme"
+    css = here / f"{name}.tcss"
+    if not css.is_file():
+        css = here / "mocha.tcss"
+    return str(css)
+
+
 PROFILE = load_profile()
 VAULT = Path(
     os.environ.get("CHIBITARU_VAULT")
@@ -140,19 +160,9 @@ class StatusBar(Static):
 class ChibitaruTUI(App):
     TITLE = "Chibitaru"
 
-    CSS = """
-    Screen { layout: vertical; }
-    #body { height: 1fr; }
-    #left { width: 32; border-right: solid $panel; }
-    VaultTree { height: 1fr; }
-    #backlinks { height: 8; border-top: solid $panel; padding: 0 1; }
-    #backlinks-title { color: $text-muted; }
-    #right { width: 1fr; }
-    Markdown { padding: 0 2; }
-    StatusBar { dock: bottom; height: 1; background: $panel; }
-    #search { display: none; dock: top; }
-    #search.visible { display: block; }
-    """
+    # 配色は外のファイルに置く。chibitaru-theme で切り替えられるように。
+    CSS_PATH = _theme_path()
+
 
     BINDINGS = [
         Binding("e", "edit", "編集"),

@@ -1,0 +1,25 @@
+/* Catppuccin Mocha — Vault シェルの配色 */
+Screen { layout: vertical; background: #1e1e2e; color: #cdd6f4; }
+#body  { height: 1fr; }
+#left  { width: 32; background: #181825; border-right: solid #313244; }
+VaultTree { height: 1fr; background: #181825; color: #cdd6f4; }
+VaultTree > .tree--cursor    { background: #89b4fa; color: #1e1e2e; }
+VaultTree > .tree--highlight { background: #313244; }
+#backlinks { height: 8; background: #181825; border-top: solid #313244; padding: 0 1; }
+#backlinks-title { color: #7f849c; }
+#backlist { background: #181825; }
+#backlist > ListItem { background: #181825; color: #94e2d5; }
+#backlist > ListItem.--highlight { background: #313244; }
+#right { width: 1fr; background: #1e1e2e; }
+Markdown { padding: 0 2; background: #1e1e2e; color: #cdd6f4; }
+MarkdownH1 { color: #89b4fa; text-style: bold; }
+MarkdownH2 { color: #b4befe; text-style: bold; }
+MarkdownH3 { color: #94e2d5; }
+MarkdownBullet { color: #a6e3a1; }
+MarkdownFence { background: #181825; }
+StatusBar { dock: bottom; height: 1; background: #313244; color: #bac2de; }
+Footer { background: #181825; color: #a6adc8; }
+Footer > .footer--key { background: #89b4fa; color: #1e1e2e; text-style: bold; }
+#search { display: none; dock: top; background: #313244; color: #cdd6f4; }
+#search.visible { display: block; }
+Toast { background: #313244; color: #cdd6f4; }

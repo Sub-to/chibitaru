@@ -31,8 +31,13 @@ tmux set-option -t "$SESSION" status off
 tmux set-option -t "$SESSION" mouse on
 tmux set-option -t "$SESSION" escape-time 10
 tmux set-option -t "$SESSION" history-limit 5000
-tmux set-option -t "$SESSION" pane-border-style      "fg=colour238"
-tmux set-option -t "$SESSION" pane-active-border-style "fg=colour67"
+# 境目の色。テーマに合わせる（surface と blue）
+case "$(awk -F= '/^CHIBITARU_THEME=/{print $2}' /etc/chibitaru/theme 2>/dev/null)" in
+  latte) BORDER="#ccd0da"; ACTIVE="#1e66f5" ;;
+  *)     BORDER="#313244"; ACTIVE="#89b4fa" ;;
+esac
+tmux set-option -t "$SESSION" pane-border-style        "fg=${BORDER}"
+tmux set-option -t "$SESSION" pane-active-border-style "fg=${ACTIVE}"
 
 # ── ペインを割る ──────────────────────────────────────────
 # 上 65% が Vault、下 35% がシェル。

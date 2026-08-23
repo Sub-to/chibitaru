@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# 見た目を変える。テーマと文字サイズ。
+#
+#   chibitaru-theme                 いまの設定を見る
+#   chibitaru-theme mocha           濃い青ベースにする
+#   chibitaru-theme latte           薄い青ベースにする
+#   chibitaru-theme --size 18       文字を大きくする
+#   chibitaru-theme latte --size 16 まとめて
+#
+# 変更したあとは chibitaru-theme --apply か、画面を開き直すと反映される。
+#
+set -euo pipefail
+
+ROOT=/opt/chibitaru
+CONF=/etc/chibitaru/theme
+THEMES="mocha latte"
+
+theme=""; size=""; apply_now=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --size) size="${2:-}"; shift 2 ;;
+    --apply) apply_now=true; shift ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    mocha|latte) theme="$1"; shift ;;
+    *) echo "知らない指定: $1（使えるのは $THEMES と --size）" >&2; exit 1 ;;
+  esac
+done
+
+# ── いまの設定を読む ──────────────────────────────────────
+cur_theme=mocha; cur_size=14
+if [ -r "$CONF" ]; then
+  # shellcheck disable=SC1090
+  . "$CONF"
+  cur_theme="${CHIBITARU_THEME:-mocha}"
+  cur_size="${CHIBITARU_FONT_SIZE:-14}"
+fi
+
+[ -n "$theme" ] || theme="$cur_theme"
+[ -n "$size" ]  || size="$cur_size"
+
+if ! printf '%s' "$size" | grep -qE '^[0-9]+$' || [ "$size" -lt 6 ] || [ "$size" -gt 48 ]; then
+  echo "文字サイズは 6〜48 の数字で指定してください（指定: $size）" >&2
+  exit 1
+fi
+
+# 引数なしなら今の設定を出して終わり
+if [ -z "${1:-}" ] && [ "$theme" = "$cur_theme" ] && [ "$size" = "$cur_size" ] \
+   && ! $apply_now && [ "$#" -eq 0 ] && [ -r "$CONF" ]; then
+  : # 下で適用するので何もしない
+fi
+
+# ── 保存 ──────────────────────────────────────────────────
+if [ -w /etc/chibitaru ] || [ "$(id -u)" = 0 ]; then
+  install -d -m 755 /etc/chibitaru
+  cat > "$CONF" <<EOF
+# chibitaru-theme が生成
+CHIBITARU_THEME=${theme}
+CHIBITARU_FONT_SIZE=${size}
+EOF
+else
+  echo "設定を保存できません（root で実行してください）" >&2
+  exit 1
+fi
+
+# ── foot に反映 ───────────────────────────────────────────
+# 対象ユーザーの ~/.config/foot/foot.ini を作る
+user="${CHIBITARU_USER:-}"
+if [ -z "$user" ] && [ -r /etc/chibitaru/profile ]; then
+  user=$(awk -F= '/^CHIBITARU_USER=/{print $2}' /etc/chibitaru/profile)
+fi
+[ -n "$user" ] || user=$(awk -F: '$3>=1000 && $3<65534 {print $1; exit}' /etc/passwd)
+home=$(getent passwd "$user" | cut -d: -f6)
+
+install -d -m 755 -o "$user" -g "$user" "$home/.config"
+install -d -m 755 -o "$user" -g "$user" "$home/.config/foot"
+
+{
+  echo "# chibitaru-theme が生成。直接編集せず chibitaru-theme を使うこと。"
+  echo "[main]"
+  # 日本語を含むので CJK を持つフォントに落ちる必要がある。
+  # monospace のままだと環境によっては日本語が豆腐になる。
+  echo "font=monospace:size=${size}, Noto Sans Mono CJK JP:size=${size}"
+  echo "pad=4x4"
+  echo ""
+  echo "[cursor]"
+  echo "style=block"
+  echo ""
+  cat "$ROOT/profiles/foot/${theme}.ini"
+} > "$home/.config/foot/foot.ini"
+chown "$user:$user" "$home/.config/foot/foot.ini"
+
+# ── TUI に反映 ────────────────────────────────────────────
+# TUI は起動時に /etc/chibitaru/theme を読んで対応する tcss を使う
+echo "  テーマ    ${theme}"
+echo "  文字サイズ ${size}"
+
+# ── 反映 ──────────────────────────────────────────────────
+if $apply_now; then
+  if pgrep -x labwc >/dev/null; then
+    echo "  画面を開き直しています..."
+    systemctl restart getty@tty1
+    echo "  完了"
+  else
+    echo "  画面が動いていないので、次の起動から反映されます"
+  fi
+else
+  echo ""
+  echo "  反映するには:  chibitaru-theme --apply"
+  echo "  （画面が一度閉じて開き直します）"
+fi
