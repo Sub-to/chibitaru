@@ -20,12 +20,16 @@ MarkdownFence { background: #181825; }
 
 Footer { background: #181825; color: #a6adc8; }
 Footer > .footer--key { background: #89b4fa; color: #1e1e2e; text-style: bold; }
-#search { display: none; dock: top; background: #313244; color: #cdd6f4; }
+#search { display: none; background: #313244; color: #cdd6f4; }
 #search.visible { display: block; }
 Toast { background: #313244; color: #cdd6f4; }
 
+/* dock は使わない。同じ辺に複数置くと重なる（実機で
+   お知らせと上部バーが両方 y=0 になった）。Screen が
+   layout: vertical なので、書いた順に上から並ぶ。 */
+
 /* 上部バー — 左に状態、右に日付と時刻 */
-TopBar { dock: top; height: 1; background: #313244; color: #bac2de; }
+TopBar { height: 1; background: #313244; color: #bac2de; }
 #top-state { width: auto; background: #313244; }
 #top-clock { width: 1fr; text-align: right; color: #89b4fa; background: #313244; }
 
@@ -35,7 +39,7 @@ Footer { border-top: solid #585b70; height: 2; }
 
 /* お知らせ — 画面の一番上を右から左へ流れる */
 NewsTicker {
-    dock: top; height: 1;
+    height: 1;
     background: #181825; color: #f38ba8;
 }
 
