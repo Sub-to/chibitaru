@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""
+言われたことを実行する。
+
+  chibitaru-act "音量を上げて"
+  chibitaru-act --json "電源を切って"
+
+設計の考え方 — 「音量上げて」を判定するのに大きな言語モデルは要らない。
+語の並びで足りるものは語で片づけ、そうでないものだけ Qwen に回す。
+MYLN-FRAME を常駐させて重いものは呼ぶ時だけ、という方針と同じ。
+
+戻り値:
+  0  実行した
+  3  意図は分かったが確認が要る（危ないもの）
+  4  何を言われたか分からなかった
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+VOL_STEP = 10
+
+
+def sh(*args: str, timeout: int = 5) -> tuple[int, str]:
+    try:
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, (p.stdout or p.stderr).strip()
+    except FileNotFoundError:
+        return 127, f"{args[0]} がありません"
+    except subprocess.SubprocessError as e:
+        return 1, str(e)
+
+
+def wpctl(*args: str) -> tuple[int, str]:
+    return sh("wpctl", *args)
+
+
+def current_volume() -> int | None:
+    rc, out = wpctl("get-volume", "@DEFAULT_AUDIO_SINK@")
+    if rc != 0:
+        return None
+    try:
+        return round(float(out.split()[1]) * 100)
+    except (IndexError, ValueError):
+        return None
+
+
+# ── 動作 ──────────────────────────────────────────────────
+def act_volume(text: str) -> tuple[int, str]:
+    now = current_volume()
+    if now is None:
+        return 1, "音量を読めませんでした"
+
+    # 「60%にして」のように数字が入っていればそれに合わせる
+    m = re.search(r"(\d{1,3})\s*(?:%|パーセント)", text)
+    if m:
+        target = max(0, min(150, int(m.group(1))))
+    elif re.search(r"(消|ミュート|黙)", text):
+        wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "1")
+        return 0, "音を消しました"
+    elif re.search(r"(戻|解除|つけ)", text) and "ミュート" in text:
+        wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "0")
+        return 0, "音を戻しました"
+    elif re.search(r"(上げ|大きく|でかく|あげ)", text):
+        target = min(150, now + VOL_STEP)
+    elif re.search(r"(下げ|小さく|さげ)", text):
+        target = max(0, now - VOL_STEP)
+    else:
+        return 0, f"いまの音量は {now}% です"
+
+    wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "0")
+    rc, err = wpctl("set-volume", "@DEFAULT_AUDIO_SINK@", f"{target}%")
+    if rc != 0:
+        return 1, f"変えられませんでした（{err}）"
+    return 0, f"音量を {target}% にしました"
+
+
+def act_music(text: str) -> tuple[int, str]:
+    if re.search(r"(次|つぎ|進め)", text):
+        sh("mpc", "next")
+        return 0, "次の曲にしました"
+    if re.search(r"(前|まえ|戻)", text):
+        sh("mpc", "prev")
+        return 0, "前の曲に戻しました"
+    if re.search(r"(止め|停止|とめ|やめ)", text):
+        sh("mpc", "stop")
+        return 0, "音楽を止めました"
+    if re.search(r"(一時|ポーズ)", text):
+        sh("mpc", "toggle")
+        return 0, "一時停止しました"
+    rc, out = sh("mpc", "play")
+    if rc != 0:
+        return 1, "音楽を鳴らせませんでした"
+    first = out.splitlines()[0] if out.strip() else ""
+    return 0, f"音楽を流します {first}".strip()
+
+
+def act_note(text: str) -> tuple[int, str]:
+    """
+    今日の日記を用意する。開くのは画面側の仕事なので、ここでは
+    ファイルを作って場所を返すだけにする。
+    """
+    from datetime import date
+    vault = None
+    conf = Path("/etc/chibitaru/profile")
+    if conf.is_file():
+        for line in conf.read_text().splitlines():
+            if line.startswith("CHIBITARU_VAULT="):
+                vault = Path(line.partition("=")[2].strip())
+    vault = vault or (Path.home() / "Vault")
+    day = date.today().isoformat()
+    path = vault / "日記" / f"{day}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text(f"# {day}\n\n", encoding="utf-8")
+    return 0, f"今日の日記を用意しました|{path}"
+
+
+def act_status(text: str) -> tuple[int, str]:
+    parts = []
+    v = current_volume()
+    if v is not None:
+        parts.append(f"音量 {v}%")
+    try:
+        info = {}
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            k, _, val = line.partition(":")
+            info[k] = int(val.split()[0])
+        used = (info["MemTotal"] - info["MemAvailable"]) / 1048576
+        total = info["MemTotal"] / 1048576
+        parts.append(f"記憶 {used:.1f}/{total:.0f}GB")
+    except (OSError, KeyError, ValueError):
+        pass
+    for b in sorted(Path("/sys/class/power_supply").glob("BAT*")):
+        cap = b / "capacity"
+        if cap.is_file():
+            parts.append(f"電池 {cap.read_text().strip()}%")
+            break
+    return 0, "、".join(parts) if parts else "分かりませんでした"
+
+
+# ── 何を言われたのか ──────────────────────────────────────
+# 上から順に見て、最初に当たったものを採る。
+RULES = [
+    # 危ないものは実行せず、確認を求める（戻り値 3）
+    ("power",  r"(電源|でんげん|シャットダウン|終了して|切って)", None),
+    ("reboot", r"(再起動|リブート|立ち上げ直)", None),
+    ("volume", r"(音量|ボリューム|音を|ミュート|うるさ|聞こえ)", act_volume),
+    ("music",  r"(音楽|曲|再生|流して|止めて|次の曲|前の曲)", act_music),
+    ("note",   r"(日記|ノート|メモ|書き留め)", act_note),
+    ("status", r"(状態|どう|残り|バッテリ|電池|メモリ|記憶)", act_status),
+]
+
+
+def decide(text: str) -> tuple[str, object]:
+    for name, pattern, fn in RULES:
+        if re.search(pattern, text):
+            return name, fn
+    return "unknown", None
+
+
+def main() -> int:
+    as_json = "--json" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--json"]
+    if not args:
+        print("何を言われたのか渡してください", file=sys.stderr)
+        return 4
+    text = " ".join(args)
+
+    kind, fn = decide(text)
+
+    if kind in ("power", "reboot"):
+        # 実行しない。確認は画面側で取る。取り返しがつかないものを
+        # 聞き間違いで実行しないため。
+        word = "電源を切ります" if kind == "power" else "再起動します"
+        out = {"kind": kind, "confirm": True, "message": f"{word}。よろしいですか？"}
+        print(json.dumps(out, ensure_ascii=False) if as_json else out["message"])
+        return 3
+
+    if fn is None:
+        msg = "うまく聞き取れませんでした"
+        print(json.dumps({"kind": "unknown", "message": msg}, ensure_ascii=False)
+              if as_json else msg)
+        return 4
+
+    rc, msg = fn(text)
+    # 「用意しました|パス」のように、後ろに場所を付けて返すものがある
+    message, _, extra = msg.partition("|")
+    out = {"kind": kind, "message": message, "path": extra or None, "ok": rc == 0}
+    print(json.dumps(out, ensure_ascii=False) if as_json else message)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())
