@@ -645,20 +645,26 @@ EOF
 EOF
   c_ok "端末は装飾なしで全画面"
 
-  # マイクの初期音量。実機で 100% だと環境音でも波形が割れ、
-  # 音声認識が幻聴を起こした。60% から始める。
-  install -D -o "$TARGET_USER" -g "$TARGET_USER" -m 755 /dev/stdin \
-    "${TARGET_HOME}/.config/chibitaru-mic.sh" <<'EOF'
-#!/bin/sh
-# install/setup.sh が生成。labwc の autostart から呼ばれる。
-# 100% だと環境音で波形が割れ、音声認識が幻聴を起こす。
-wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 60% 2>/dev/null || true
-EOF
-  if ! grep -q "chibitaru-mic" "${TARGET_HOME}/.config/labwc/autostart" 2>/dev/null; then
-    printf '%s\n' "\$HOME/.config/chibitaru-mic.sh &" \
-      >> "${TARGET_HOME}/.config/labwc/autostart"
+  # マイクの増幅は ALSA 側で決める。
+  #
+  # 実機の ALC3232 は Capture が 97%（+28.5dB）で出荷状態になっており、
+  # 環境音だけで波形が上限に張り付いていた。pipewire の音量を下げても
+  # 効かない — あれは ADC で既に割れた後にかかるため。
+  #
+  # 実測（4秒の環境音・頂点/RMS）:
+  #   90% +25.5dB  32768 / 7584  割れる
+  #   70% +15.8dB  20593 / 2618  割れないが環境音が大きすぎる
+  #   50%  +6.8dB   3363 /  612  ← これを採る。余裕があり環境音も低い
+  #   35%  -0.8dB   1804 /  238  声が小さくなりすぎる恐れ
+  if command -v amixer >/dev/null && [ -d /proc/asound/card0 ]; then
+    amixer -c 0 sset Capture 50% >/dev/null 2>&1 || true
+    for b in "Mic Boost" "Internal Mic Boost" "Dock Mic Boost"; do
+      amixer -c 0 sset "$b" 0% >/dev/null 2>&1 || true
+    done
+    # 再起動しても戻らないように保存する（alsa-restore が読む）
+    alsactl store >/dev/null 2>&1 || true
+    c_ok "マイクの増幅を 50% に（実測で決めた値・保存済み）"
   fi
-  c_ok "マイクの初期音量を 60% に"
 
   svc daemon-reload
 }
