@@ -192,6 +192,27 @@ step_gpu() {
   drv=$(printf '%s' "$info" | grep -m1 -oE "[a-z0-9_]+_drv_video\.so" || true)
   [ -n "$drv" ] && c_ok "使うドライバ: ${drv}"
 
+  # どのドライバなら実際に H.264 が降りるかを試して決める。
+  # PCI ID の表は書かない。実機（Haswell）で libva が iHD を先に試して
+  # 失敗し、i965 に落ちてから動いていた。動くには動くが毎回エラーを
+  # 吐くので、正解が分かっているなら最初から指定したほうがよい。
+  local works=""
+  for cand in i965 iHD; do
+    if LIBVA_DRIVER_NAME="$cand" vainfo 2>/dev/null \
+       | grep -q "VAProfileH264High.*VAEntrypointVLD"; then
+      works="$cand"; break
+    fi
+  done
+  if [ -n "$works" ]; then
+    install -D -m 644 /dev/stdin /etc/profile.d/chibitaru-vaapi.sh <<EOF
+# install/setup.sh が生成
+# 実際に H.264 が降りることを確かめたドライバを指定する。
+# 自動選択でも動くが、合わないドライバを先に試して失敗ログを出すため。
+export LIBVA_DRIVER_NAME=${works}
+EOF
+    c_ok "VA-API ドライバを ${works} に固定（実際に試して確認）"
+  fi
+
   # H.264 が降りれば、実用上の動画はほぼ GPU で再生される
   if printf '%s' "$info" | grep -q "VAProfileH264.*VAEntrypointVLD"; then
     c_ok "H.264 のハードウェアデコードが有効"
