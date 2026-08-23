@@ -17,9 +17,18 @@ MarkdownH2 { color: #7287fd; text-style: bold; }
 MarkdownH3 { color: #179299; }
 MarkdownBullet { color: #40a02b; }
 MarkdownFence { background: #e6e9ef; }
-StatusBar { dock: bottom; height: 1; background: #ccd0da; color: #5c5f77; }
+
 Footer { background: #e6e9ef; color: #6c6f85; }
 Footer > .footer--key { background: #1e66f5; color: #eff1f5; text-style: bold; }
 #search { display: none; dock: top; background: #ccd0da; color: #4c4f69; }
 #search.visible { display: block; }
 Toast { background: #ccd0da; color: #4c4f69; }
+
+/* 上部バー — 左に状態、右に日付と時刻 */
+TopBar { dock: top; height: 1; background: #ccd0da; color: #5c5f77; }
+#top-state { width: auto; background: #ccd0da; }
+#top-clock { width: 1fr; text-align: right; color: #1e66f5; background: #ccd0da; }
+
+/* コンソールとの境目に線を引く。ここが曖昧だと
+   どこまでが Vault でどこからがシェルか分かりにくい。 */
+Footer { border-top: solid #acb0be; height: 2; }

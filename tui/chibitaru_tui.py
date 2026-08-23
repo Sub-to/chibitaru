@@ -30,7 +30,7 @@ import os
 import re
 import subprocess
 import unicodedata
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -129,14 +129,36 @@ class VaultTree(DirectoryTree):
                 yield p
 
 
-class StatusBar(Static):
-    """搭載量に対する使用量と、今のプロファイルを出す。"""
+WEEKDAY = ("月", "火", "水", "木", "金", "土", "日")
+
+
+class TopBar(Horizontal):
+    """
+    画面のいちばん上。左に状態、右に日付と時刻。
+
+    下ではなく上に置いたのは、下は本物のシェルが占めていて
+    視線がそちらに行くため。常に見えていてほしいものは上に出す。
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Label("", id="top-state")
+        yield Label("", id="top-clock")
 
     def on_mount(self) -> None:
-        self.update_status()
-        self.set_interval(5.0, self.update_status)
+        self.tick()
+        # 秒は出さないので 10 秒ごとで足りる。無駄に起こさない。
+        self.set_interval(10.0, self.tick)
 
-    def update_status(self) -> None:
+    def tick(self) -> None:
+        self.query_one("#top-state", Label).update(self._state())
+        self.query_one("#top-clock", Label).update(self._clock())
+
+    def _clock(self) -> str:
+        now = datetime.now()
+        return (f"{now.year}-{now.month:02d}-{now.day:02d} "
+                f"({WEEKDAY[now.weekday()]}) {now.hour:02d}:{now.minute:02d} ")
+
+    def _state(self) -> str:
         try:
             info = {}
             for line in Path("/proc/meminfo").read_text().splitlines():
@@ -151,9 +173,8 @@ class StatusBar(Static):
             mem = f"[{color}]RAM {used/1024:.1f}/{total/1024:.1f}G[/]"
         except (OSError, KeyError, ValueError):
             mem = "RAM ?"
-
         notes = sum(1 for _ in VAULT.rglob("*.md")) if VAULT.is_dir() else 0
-        self.update(f" {TIER}  │  ノート {notes}  │  {mem} ")
+        return f" Chibitaru {TIER}  │  ノート {notes}  │  {mem}"
 
 
 # ── 本体 ──────────────────────────────────────────────────
@@ -177,6 +198,7 @@ class ChibitaruTUI(App):
         self.current: Path | None = None
 
     def compose(self) -> ComposeResult:
+        yield TopBar()
         yield Input(placeholder="Vault を検索（Enter で実行、Esc で閉じる）", id="search")
         with Horizontal(id="body"):
             with Vertical(id="left"):
@@ -186,7 +208,6 @@ class ChibitaruTUI(App):
                     yield ListView(id="backlist")
             with Vertical(id="right"):
                 yield Markdown("", id="view")
-        yield StatusBar()
         yield Footer()
 
     def on_mount(self) -> None:
