@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# 話した内容を Vault に書き留める。
+#
+#   chibitaru-listen           Enter を押すまで録音し、書き起こす
+#   chibitaru-listen -s 10     10 秒録音して書き起こす
+#   chibitaru-listen --stdout  Vault に書かず、画面に出すだけ
+#
+# 常時聞き耳を立てない。押している間だけ録音する。省電力のためでも
+# あるが、それ以上に「いつ録っているか分からない機械」を持ち歩きたく
+# ないため。録音した音声は書き起こしたあと消す。
+#
+set -euo pipefail
+
+SECONDS_LIMIT=""
+TO_STDOUT=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -s|--seconds) SECONDS_LIMIT="${2:-}"; shift 2 ;;
+    --stdout)     TO_STDOUT=true; shift ;;
+    -h|--help)    sed -n '2,10p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    *) echo "知らない指定: $1" >&2; exit 1 ;;
+  esac
+done
+
+# ── 設定を読む ────────────────────────────────────────────
+[ -r /etc/chibitaru/whisper ] || {
+  echo "音声認識がまだ入っていません。" >&2
+  echo "  sudo bash /opt/chibitaru/install/whisper.sh" >&2
+  exit 1; }
+# shellcheck disable=SC1091
+. /etc/chibitaru/whisper
+[ -x "${CHIBITARU_WHISPER_BIN:-}" ] || { echo "whisper が見つかりません" >&2; exit 1; }
+[ -s "${CHIBITARU_WHISPER_MODEL:-}" ] || { echo "モデルが見つかりません" >&2; exit 1; }
+
+VAULT="${CHIBITARU_VAULT:-}"
+if [ -z "$VAULT" ] && [ -r /etc/chibitaru/profile ]; then
+  VAULT=$(awk -F= '/^CHIBITARU_VAULT=/{print $2}' /etc/chibitaru/profile)
+fi
+[ -n "$VAULT" ] || VAULT="$HOME/Vault"
+
+WAV=$(mktemp /tmp/chibitaru-listen.XXXXXX.wav)
+# 音声はディスクに残さない。書き起こしたら消す。
+trap 'rm -f "$WAV" "${WAV%.wav}"*.txt 2>/dev/null' EXIT
+
+# ── 録音 ──────────────────────────────────────────────────
+# whisper は 16kHz モノラルを食う。変換を挟まずそのまま録る。
+if [ -n "$SECONDS_LIMIT" ]; then
+  echo "  録音中… ${SECONDS_LIMIT}秒"
+  timeout "$SECONDS_LIMIT" pw-record --channels=1 --rate=16000 "$WAV" \
+    >/dev/null 2>&1 || true
+else
+  echo "  録音中… 話し終えたら Enter"
+  pw-record --channels=1 --rate=16000 "$WAV" >/dev/null 2>&1 &
+  rec_pid=$!
+  read -r _ || true
+  kill "$rec_pid" 2>/dev/null || true
+  wait "$rec_pid" 2>/dev/null || true
+fi
+
+[ -s "$WAV" ] || { echo "  録音できませんでした（マイクを確認してください）" >&2; exit 1; }
+
+# ── 書き起こし ────────────────────────────────────────────
+echo "  書き起こし中…"
+start=$(date +%s)
+TEXT=$("$CHIBITARU_WHISPER_BIN" \
+        -m "$CHIBITARU_WHISPER_MODEL" \
+        -f "$WAV" -l ja -nt -np -t "$(nproc)" 2>/dev/null \
+       | sed 's/^[[:space:]]*//' | grep -v '^$' || true)
+took=$(( $(date +%s) - start ))
+
+if [ -z "$TEXT" ]; then
+  echo "  何も聞き取れませんでした（${took}秒）" >&2
+  exit 1
+fi
+
+echo ""
+echo "$TEXT" | sed 's/^/  /'
+echo ""
+echo "  （${took}秒）"
+
+$TO_STDOUT && exit 0
+
+# ── Vault に残す ──────────────────────────────────────────
+# この OS で起きたことは Markdown になって残る、という原則どおり。
+DAY=$(date +%F)
+OUT="${VAULT}/音声/${DAY}.md"
+mkdir -p "$(dirname "$OUT")"
+[ -f "$OUT" ] || printf '# %s の音声メモ\n' "$DAY" > "$OUT"
+printf '\n## %s\n\n%s\n' "$(date +%H:%M)" "$TEXT" >> "$OUT"
+echo "  → ${OUT}"
