@@ -26,6 +26,7 @@ Chibitaru OS の Vault シェル。
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -338,24 +339,91 @@ class ChibitaruTUI(App):
 
     def action_toggle_talk(self) -> None:
         """
-        会話の入り切り。
+        会話の入り切り。入にすると一度だけ聞き取って実行する。
 
-        入にすると AI 画面へ移り、円が「聞」になる。実際の聞き取りは
-        Phase 4 でつなぐが、状態の見えかたは先に作っておく。
-        押しているのに何も変わらない画面が一番不安になるので。
+        押しっぱなしで聞き続けない。いつ録っているか分からない機械を
+        持ち歩きたくない、という chibitaru-listen と同じ考え方。
         """
         sw = self.query_one("#switches", Switches)
-        on = not sw.talking
-        sw.set_talking(on)
         ai = self.query_one("#ai", AIConsole)
-        if on:
-            self.query_one("#view", Markdown).display = False
-            ai.display = True
-            ai.set_state("listen")
-            ai.say("ちびたる", "聞いています。")
-        else:
+        if sw.talking:
+            sw.set_talking(False)
             ai.set_state("idle")
-            ai.say("ちびたる", "会話を切りました。")
+            return
+
+        sw.set_talking(True)
+        self.query_one("#view", Markdown).display = False
+        ai.display = True
+        ai.set_state("listen")
+        ai.say("ちびたる", "聞いています。話してください。")
+        self.run_worker(self._listen_once, thread=True, exclusive=True)
+
+    def _listen_once(self) -> None:
+        """
+        録る → 書き起こす → 実行する。
+
+        時間がかかるので別の糸で動かす。画面が固まると、聞いているのか
+        落ちたのか区別がつかない。
+        """
+        ai = self.query_one("#ai", AIConsole)
+        sw = self.query_one("#switches", Switches)
+
+        def show(state=None, who=None, text=None):
+            if state:
+                self.call_from_thread(ai.set_state, state)
+            if text:
+                self.call_from_thread(ai.say, who, text)
+
+        try:
+            r = subprocess.run(
+                ["chibitaru-listen", "-s", "6", "--stdout"],
+                capture_output=True, text=True, timeout=90)
+        except (FileNotFoundError, subprocess.SubprocessError) as e:
+            show("idle", "ちびたる", f"聞き取りを動かせません（{type(e).__name__}）")
+            self.call_from_thread(sw.set_talking, False)
+            return
+
+        heard = ""
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            # 進み具合の表示と所要時間の行は本文ではない
+            if not line or line.startswith(("録音", "書き起こし", "（")):
+                continue
+            heard = line
+            break
+
+        if not heard:
+            show("idle", "ちびたる", "聞き取れませんでした。もう一度どうぞ。")
+            self.call_from_thread(sw.set_talking, False)
+            return
+
+        show("think", "あなた", heard)
+
+        try:
+            a = subprocess.run(["chibitaru-act", "--json", heard],
+                               capture_output=True, text=True, timeout=20)
+            data = json.loads(a.stdout or "{}")
+        except (FileNotFoundError, subprocess.SubprocessError,
+                json.JSONDecodeError):
+            show("idle", "ちびたる", "うまく動かせませんでした")
+            self.call_from_thread(sw.set_talking, False)
+            return
+
+        show("speak", "ちびたる", data.get("message", "…"))
+
+        # 取り返しがつかないものは、ここでは実行しない。
+        # 聞き間違いで電源が落ちるのが一番困る。
+        if data.get("confirm"):
+            self.call_from_thread(
+                ai.say, "ちびたる", "実行するなら右の「電源」を押してください。")
+
+        # 日記のように場所を返すものは、そのまま開いてあげる
+        path = data.get("path")
+        if path and Path(path).is_file():
+            self.call_from_thread(self.open_note, Path(path))
+
+        self.call_from_thread(sw.set_talking, False)
+        self.call_from_thread(ai.set_state, "idle")
 
     def action_music_toggle(self) -> None:
         """再生と一時停止を入れ替える。ツリー操作の邪魔にならないよう
