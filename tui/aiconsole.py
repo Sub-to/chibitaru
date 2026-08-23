@@ -53,23 +53,29 @@ class Ring(Static):
 
         label, rings, speed = STATES[self.state]
         cx, cy = (w - 1) / 2, (h - 1) / 2
-        # 環が画面に収まるように間隔を決める。縦が足りない機体でも崩れない。
-        span = min((h - 1) / 2.0, (w - 1) / 4.0)
-        inner = max(1.8, span * 0.34)
-        gap = max(0.9, (span - inner) / max(1, rings))
+        # 升目は縦長なので横を潰して丸く見せる。2.0 だと真円になるが、
+        # 横に広い画面では小さく見えるので少し楕円に寄せてある。
+        aspect = 2.8
+        span = min((h - 1) / 2.0, (w - 1) / (aspect * 2))
+        inner = max(1.8, span * 0.30)
+        gap = max(0.8, (span - inner) / max(1, rings))
+        edge = span + 0.9          # 外の輪郭
 
         grid = [[" "] * w for _ in range(h)]
         for y in range(h):
             for x in range(w):
-                # 端末の升目は縦長なので、横を半分に潰して丸く見せる
-                dx, dy = (x - cx) / 2.0, y - cy
+                dx, dy = (x - cx) / aspect, y - cy
                 d = math.hypot(dx, dy)
+                # 輪郭は動かさない。ここが動くと全体が落ち着かない。
+                if abs(d - edge) < 0.40:
+                    grid[y][x] = "·"
+                    continue
                 if d < inner - 0.7:      # 中央は文字のために空ける
                     continue
                 a = math.atan2(dy, dx)
                 for i in range(rings):
                     r = inner + i * gap
-                    if abs(d - r) < 0.42:
+                    if abs(d - r) < 0.40:
                         t = (a / (2 * math.pi)
                              + self._phase * speed - i * 0.12) % 1.0
                         lv = 1.0 - abs(t - 0.5) * 2.0
