@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# いま動いているシステムを、指定したディスクへ複製する。
+#
+# USB から起動して使ってみて、気に入ったら内蔵ディスクへ移すためのもの。
+# インストーラを起動し直す必要はない。設定もテーマも済んだ状態が
+# そのまま移る。
+#
+#   chibitaru-to-disk /dev/sda          何をするか見せるだけ（消さない）
+#   chibitaru-to-disk /dev/sda --yes    実行する
+#
+# ⚠ 指定したディスクの中身は完全に消える。
+#
+set -euo pipefail
+
+TARGET="${1:-}"
+CONFIRM=false
+[ "${2:-}" = "--yes" ] && CONFIRM=true
+
+c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
+c_ok()   { printf "    \033[32m*\033[0m %s\n" "$*"; }
+c_warn() { printf "    \033[33m!\033[0m %s\n" "$*"; }
+c_die()  { printf "\n  \033[31mNG: %s\033[0m\n\n" "$*" >&2; exit 1; }
+
+[ "$(id -u)" = 0 ] || c_die "root で実行してください"
+[ -n "$TARGET" ]   || c_die "使い方: chibitaru-to-disk /dev/sda [--yes]"
+[ -b "$TARGET" ]   || c_die "$TARGET はブロックデバイスではありません"
+
+# ═══════════════════════════════════════════════════════════
+# 安全確認 — ここを間違えると動いているシステムを消す
+# ═══════════════════════════════════════════════════════════
+ROOT_SRC=$(findmnt -no SOURCE /)
+ROOT_DISK="/dev/$(lsblk -no PKNAME "$ROOT_SRC" | head -1)"
+
+if [ "$TARGET" = "$ROOT_DISK" ]; then
+  c_die "$TARGET は今このシステムが動いているディスクです"
+fi
+
+# 対象がマウント中でないか（別の場所で使われていたら止める）
+if lsblk -no MOUNTPOINT "$TARGET" | grep -q .; then
+  c_die "$TARGET のどこかがマウントされています。先に umount してください"
+fi
+
+BOOT_MODE=bios
+[ -d /sys/firmware/efi ] && BOOT_MODE=uefi
+
+TARGET_SIZE=$(( $(blockdev --getsize64 "$TARGET") / 1073741824 ))
+USED_GB=$(df -BG --output=used / | tail -1 | tr -dc '0-9')
+MODEL=$(lsblk -dno MODEL "$TARGET" | tr -s ' ')
+
+[ "$TARGET_SIZE" -gt $(( USED_GB + 4 )) ] \
+  || c_die "$TARGET が小さすぎます（${TARGET_SIZE}GB / 必要 $((USED_GB + 4))GB）"
+
+# ═══════════════════════════════════════════════════════════
+c_head "これから行うこと"
+cat <<EOF
+    複製元    ${ROOT_SRC}  (${ROOT_DISK}, 使用 ${USED_GB}GB)
+    複製先    ${TARGET}  (${MODEL}, ${TARGET_SIZE}GB)
+    起動方式  ${BOOT_MODE}
+
+    ${TARGET} の中身は完全に消えます。現在そこにあるもの:
+EOF
+lsblk -o NAME,SIZE,FSTYPE,LABEL "$TARGET" | sed 's/^/      /'
+
+if [ "$BOOT_MODE" = uefi ]; then
+  c_warn "UEFI 起動です。このスクリプトは BIOS 起動しか作りません"
+  c_die "UEFI 用の作成は未実装です"
+fi
+
+if ! $CONFIRM; then
+  cat <<EOF
+
+    まだ何もしていません。実行するには --yes を付けてください:
+
+      chibitaru-to-disk ${TARGET} --yes
+
+EOF
+  exit 0
+fi
+
+# ═══════════════════════════════════════════════════════════
+c_head "① パーティションを作る"
+# BIOS 起動なので MBR ひとつで足りる。EFI 領域も BIOS boot 領域も要らない。
+wipefs -a "$TARGET" >/dev/null
+sfdisk --quiet --label dos "$TARGET" <<'EOF'
+,,83,*
+EOF
+udevadm settle 2>/dev/null || sleep 2
+PART="${TARGET}1"
+[ -b "$PART" ] || c_die "$PART ができませんでした"
+c_ok "$PART を作成（MBR・全体・起動可）"
+
+c_head "② ファイルシステムを作る"
+mkfs.ext4 -q -F -L chibitaru "$PART"
+NEW_UUID=$(blkid -s UUID -o value "$PART")
+c_ok "ext4 / ラベル chibitaru / UUID ${NEW_UUID}"
+
+c_head "③ 中身を複製する"
+MNT=/mnt/chibitaru-install
+mkdir -p "$MNT"
+mount "$PART" "$MNT"
+
+# 仮想ファイルシステムと、複製先そのものは除く。
+# /swapfile と古いバックアップも持っていかない。
+rsync -aHAXx --info=progress2 \
+  --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' \
+  --exclude='/tmp/*'  --exclude='/run/*'  --exclude='/mnt/*' \
+  --exclude='/media/*' --exclude='/lost+found' \
+  --exclude='/swapfile' \
+  / "$MNT/" 2>&1 | tail -3
+mkdir -p "$MNT"/{dev,proc,sys,tmp,run,mnt,media}
+chmod 1777 "$MNT/tmp"
+c_ok "複製完了"
+
+c_head "④ 起動設定を書き換える"
+# fstab の / を新しい UUID にする。控えは残す。
+cp -a "$MNT/etc/fstab" "$MNT/etc/fstab.before-install"
+awk -v u="$NEW_UUID" '
+  /^[[:space:]]*#/ { print; next }
+  $2 == "/"        { print "UUID=" u, "/", $3, $4, $5, $6; next }
+  # USB 上のスワップは持っていかない
+  $3 == "swap"     { print "#", $0; next }
+  { print }
+' OFS="\t" "$MNT/etc/fstab.before-install" > "$MNT/etc/fstab"
+
+findmnt --verify --tab-file "$MNT/etc/fstab" >/dev/null 2>&1 \
+  || { cp -a "$MNT/etc/fstab.before-install" "$MNT/etc/fstab"
+       c_die "fstab の検証に通りませんでした。何も壊していません"; }
+c_ok "fstab を新しい UUID に更新"
+
+c_head "⑤ GRUB を入れる"
+for d in dev dev/pts proc sys; do mount --rbind "/$d" "$MNT/$d"; done
+chroot "$MNT" grub-install --target=i386-pc "$TARGET" >/dev/null 2>&1 \
+  || c_die "grub-install に失敗しました"
+c_ok "GRUB を ${TARGET} に書いた"
+chroot "$MNT" update-grub >/dev/null 2>&1 || c_warn "update-grub で警告"
+c_ok "起動メニューを作成"
+chroot "$MNT" update-initramfs -u >/dev/null 2>&1 || c_warn "initramfs で警告"
+c_ok "initramfs を更新"
+
+c_head "⑥ 後始末"
+for d in sys proc dev/pts dev; do umount -lR "$MNT/$d" 2>/dev/null || true; done
+sync
+umount "$MNT" 2>/dev/null || umount -l "$MNT"
+c_ok "アンマウント"
+
+cat <<EOF
+
+  完了しました。
+
+    1. shutdown -h now で電源を切る
+    2. USB を抜く
+    3. 電源を入れる（そのまま内蔵ディスクから起動します）
+
+  USB はそのまま残っているので、うまくいかなければ挿し直せば
+  元の環境に戻れます。
+
+EOF
