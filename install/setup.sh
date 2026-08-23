@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman install theme vault session report)
+STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo install theme vault session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -146,6 +146,10 @@ step_packages() {
     containers-storage
     dbus-user-session   # ユーザーセッションのバス（pipewire も使う）
     # 道具
+    # sudo は入れておく。Debian のインストーラは root パスワードを
+    # 設定すると sudo を入れないため、実機で「sudo: command not found」に
+    # なった。この OS は普段使いを想定するので必要。
+    sudo
     python3 python3-venv python3-pip git curl rsync ripgrep micro pciutils util-linux
     # TUI シェル。端末エミュレータは自前で持たず tmux に任せるので、
     # 下のペインでは vim も htop も普通に動く。
@@ -437,6 +441,38 @@ EOF
     ln -sf "$b" "/usr/local/bin/$(basename "$b")"
   done
   c_ok "/usr/local/bin に chibitaru-* を通した"
+}
+
+# ═══════════════════════════════════════════════════════════
+step_sudo() {
+  c_head "sudo を使えるようにする"
+  # パッケージがあっても、ユーザーが sudo グループに入っていなければ
+  # 「is not in the sudoers file」で弾かれる。実機で踏んだ。
+  if ! command -v sudo >/dev/null; then
+    c_warn "sudo が入っていない（packages 段を先に流してください）"
+    return 0
+  fi
+  if id -nG "$TARGET_USER" | tr ' ' '\n' | grep -qx sudo; then
+    c_ok "${TARGET_USER} は既に sudo を使える"
+  else
+    usermod -aG sudo "$TARGET_USER"
+    c_ok "${TARGET_USER} を sudo グループに追加"
+    c_warn "反映は次のログインから（今の画面では効かない）"
+  fi
+
+  # shutdown や sysctl は /usr/sbin にあり、一般ユーザーの PATH に入らない。
+  # フルパスを覚えさせるより PATH を通すほうが早い。
+  install -D -m 644 /dev/stdin /etc/profile.d/chibitaru-path.sh <<'EOF'
+# install/setup.sh が生成
+# shutdown / sysctl / swapon などは /usr/sbin にある。
+# 一般ユーザーの PATH には入らないので、sudo 越しに使う前提でも
+# 補完が効くように通しておく。
+case ":$PATH:" in
+  *:/usr/sbin:*) ;;
+  *) PATH="$PATH:/usr/sbin:/sbin" ;;
+esac
+EOF
+  c_ok "/usr/sbin を PATH に通した"
 }
 
 # ═══════════════════════════════════════════════════════════
