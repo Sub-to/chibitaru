@@ -249,6 +249,34 @@ vm.dirty_expire_centisecs = 6000
 EOF
   c_ok "書き戻しをまとめる"
 
+  # ── USB 上のスワップ領域を止める ────────────────────
+  # インストーラは既定でスワップ領域を切る。USB 上にあると、
+  # メモリが逼迫したときに一番書き込みの多い処理が USB へ流れる。
+  # この OS は zram（メモリ内）にスワップを持つので、ディスク側は要らない。
+  # 実機で /dev/sdb5 が優先度 -2 で有効になっているのを見つけた。
+  local diskswap
+  diskswap=$(/usr/sbin/swapon --show=NAME --noheadings 2>/dev/null \
+             | grep -v zram || true)
+  if [ -n "$diskswap" ]; then
+    for sw in $diskswap; do
+      /usr/sbin/swapoff "$sw" 2>/dev/null && c_ok "スワップを止めた: $sw" \
+        || c_warn "止められなかった: $sw"
+    done
+    # 再起動後に戻らないよう fstab からも外す。控えを取ってから。
+    if grep -qE "^[^#].*\sswap\s" /etc/fstab; then
+      cp -a /etc/fstab /etc/fstab.chibitaru-swap.bak
+      sed -i -E 's|^([^#].*[[:space:]]swap[[:space:]].*)$|# chibitaru: USB書き込みを避けるため無効化\n#\1|' /etc/fstab
+      if findmnt --verify --tab-file /etc/fstab >/dev/null 2>&1; then
+        c_ok "fstab からも外した（控え: /etc/fstab.chibitaru-swap.bak）"
+      else
+        cp -a /etc/fstab.chibitaru-swap.bak /etc/fstab
+        c_warn "fstab の検証に通らなかったので戻した"
+      fi
+    fi
+  else
+    c_ok "ディスク上のスワップはない"
+  fi
+
   # ── atime を止める ──────────────────────────────────
   # ファイルを読むだけで書き込みが起きるのを止める。
   # fstab を壊すと起動しなくなるので、控えを取って検証してから入れ替える。
