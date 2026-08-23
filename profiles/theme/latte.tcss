@@ -39,17 +39,32 @@ NewsTicker {
     background: #e6e9ef; color: #d20f39;
 }
 
-/* 計器と音楽 — 全幅の帯。画面が横に広く縦に短いため */
-#mixer, #music {
-    dock: bottom; height: 1;
+/* 三つの列 — 左は蔵、真ん中は本文か AI、右は計器とボタン */
+#left   { width: 22; }
+#center { width: 1fr; }
+#right  { width: 18; border-left: solid #ccd0da; }
+
+/* AI の居場所 */
+#ai { width: 1fr; height: 1fr; }
+#ring { height: 1fr; color: #1e66f5; content-align: center middle; }
+#ai-log { height: 7; padding: 0 1; color: #5c5f77; }
+
+/* 計器 — 見るだけ。つまみは置かない（調整は声で） */
+.panel-title { color: #8c8fa1; }
+#mixer { height: 5; padding: 0 1; }
+#mixer Label { color: #5c5f77; }
+#music { height: 3; padding: 0 1; }
+#mu-title { color: #8c8fa1; }
+#mu-buttons { height: 1; }
+.mu-btn { width: 3; content-align: center middle; color: #179299; }
+.mu-btn:hover { background: #ccd0da; }
+
+/* 大事なボタンだけは押せるようにしておく */
+.switch {
+    height: 1; margin: 0 1;
     background: #ccd0da; color: #5c5f77;
+    content-align: left middle;
 }
-#mixer Label { width: auto; padding: 0 1; background: #ccd0da; }
-#m-bat { width: 1fr; text-align: right; }
-#mu-title { width: 1fr; background: #ccd0da; color: #5c5f77; }
-.mu-btn {
-    width: 3; content-align: center middle;
-    color: #179299; background: #ccd0da;
-}
-.mu-btn:hover { background: #8c8fa1; }
-#backlinks { height: 5; }
+.switch:hover { background: #8c8fa1; }
+#sw-power { color: #d20f39; }
+#backlinks { height: 4; }

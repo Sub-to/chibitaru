@@ -209,21 +209,20 @@ class NewsTicker(Static):
 
 
 # ══════════════════════════════════════════════════════════
-class Mixer(Horizontal):
+class Mixer(Vertical):
     """
-    計器を一列に並べる。
+    計器。つまみは置かない — 調整は声でやる。ここは見るだけ。
 
-    実機の画面は 159桁 × 18行しかない（フォントを大きくしているため）。
-    横に広く縦に短いので、縦積みにすると本文が押し出される。実際に
-    ツリーが消えた。横長の帯に収める。
+    札は日本語にしてある。演算・記憶・電源といった言葉のほうが、
+    この OS の世界（蔵丸・鬼丸）に合う。
     """
 
     def compose(self) -> ComposeResult:
+        yield Label("計器", classes="panel-title")
         yield Label("", id="m-vol")
         yield Label("", id="m-cpu")
         yield Label("", id="m-mem")
         yield Label("", id="m-tmp")
-        yield Label("", id="m-bat")
 
     def on_mount(self) -> None:
         self._cpu = CPUMeter()
@@ -238,29 +237,19 @@ class Mixer(Horizontal):
     def tick(self) -> None:
         v = self._vol_cache
         self.query_one("#m-vol", Label).update(
-            f"音量 {bar(v, 6)} {v*100:3.0f}%" if v is not None else "音量 ──")
-
+            f"音量 {bar(v, 5)}" if v is not None else "音量 ──")
         c = self._cpu.percent()
-        self.query_one("#m-cpu", Label).update(f"CPU {bar(c/100, 6)} {c:3d}%")
-
+        self.query_one("#m-cpu", Label).update(f"演算 {bar(c/100, 5)}")
         used, total = memory()
         self.query_one("#m-mem", Label).update(
-            f"RAM {bar(used/total if total else 0, 6)} {used:.1f}/{total:.0f}G")
-
+            f"記憶 {bar(used/total if total else 0, 5)}")
         t = temperature()
         # 熱くなってきたら色を変える。古い機体は埃で温度が上がる。
         col = "" if t is None or t < 65 else ("[$warning]" if t < 80 else "[$error]")
         end = "" if not col else "[/]"
         self.query_one("#m-tmp", Label).update(
-            f"{col}{t}°C{end}" if t is not None else "──")
-
-        pct, volt, mark = battery()
-        parts = []
-        if pct is not None:
-            parts.append(f"{mark} {pct}%")
-        if volt is not None:
-            parts.append(f"{volt:.1f}V")
-        self.query_one("#m-bat", Label).update(" ".join(parts) or "電池 ──")
+            f"温度 {col}{t}°[/]" if t is not None and col else
+            (f"温度 {t}°" if t is not None else "温度 ──"))
 
 
 class MusicBar(Horizontal):

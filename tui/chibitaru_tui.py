@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from aiconsole import AIConsole, Switches  # noqa: E402
 from panels import Mixer, MusicBar, NewsTicker, TopBar  # noqa: E402
 from textual.widgets import (
     DirectoryTree,
@@ -149,6 +150,8 @@ class ChibitaruTUI(App):
         Binding("r", "reload", "読み直す"),
         Binding("q", "confirm_quit", "終了"),
         Binding("space", "music_toggle", "再生/停止", show=False),
+        Binding("t", "toggle_talk", "会話"),
+        Binding("a", "toggle_ai_view", "AI画面"),
         Binding("ctrl+q", "power_off", "電源"),
     ]
 
@@ -167,15 +170,20 @@ class ChibitaruTUI(App):
                 with Vertical(id="backlinks"):
                     yield Label("ここへのリンク", id="backlinks-title")
                     yield ListView(id="backlist")
-            with Vertical(id="right"):
+            # 真ん中は切り替え。普段はノート、AI を呼ぶと円になる。
+            # 18 行しかないので、両方を同時に置くと本文が読めなくなる。
+            with Vertical(id="center"):
                 yield Markdown("", id="view")
-        # 計器と音楽は全幅の帯にする。画面が横に広く縦に短いので、
-        # 左の列に縦積みするとツリーが押し出される（実機で起きた）。
-        yield Mixer(id="mixer")
-        yield MusicBar(id="music")
+                yield AIConsole(id="ai")
+            # 右は見るだけの計器と、押せる大事なボタン
+            with Vertical(id="right"):
+                yield Mixer(id="mixer")
+                yield MusicBar(id="music")
+                yield Switches(id="switches")
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#ai", AIConsole).display = False
         if not VAULT.is_dir():
             self.query_one("#view", Markdown).update(
                 f"# Vault がありません\n\n`{VAULT}` が見つかりません。\n\n"
@@ -189,6 +197,9 @@ class ChibitaruTUI(App):
         self.open_note(event.path)
 
     def open_note(self, path: Path) -> None:
+        # ノートを選んだら本文に戻す。AI 画面のまま開いても見えない。
+        self.query_one("#ai", AIConsole).display = False
+        self.query_one("#view", Markdown).display = True
         self.current = path
         view = self.query_one("#view", Markdown)
         try:
@@ -316,6 +327,35 @@ class ChibitaruTUI(App):
             except OSError:
                 continue
         return "\n".join(hits)
+
+    def action_toggle_ai_view(self) -> None:
+        """真ん中をノートと AI で切り替える。"""
+        view = self.query_one("#view", Markdown)
+        ai = self.query_one("#ai", AIConsole)
+        show_ai = not ai.display
+        ai.display = show_ai
+        view.display = not show_ai
+
+    def action_toggle_talk(self) -> None:
+        """
+        会話の入り切り。
+
+        入にすると AI 画面へ移り、円が「聞」になる。実際の聞き取りは
+        Phase 4 でつなぐが、状態の見えかたは先に作っておく。
+        押しているのに何も変わらない画面が一番不安になるので。
+        """
+        sw = self.query_one("#switches", Switches)
+        on = not sw.talking
+        sw.set_talking(on)
+        ai = self.query_one("#ai", AIConsole)
+        if on:
+            self.query_one("#view", Markdown).display = False
+            ai.display = True
+            ai.set_state("listen")
+            ai.say("ちびたる", "聞いています。")
+        else:
+            ai.set_state("idle")
+            ai.say("ちびたる", "会話を切りました。")
 
     def action_music_toggle(self) -> None:
         """再生と一時停止を入れ替える。ツリー操作の邪魔にならないよう
