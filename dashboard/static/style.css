@@ -146,39 +146,45 @@ body.light .alert-headline { text-overflow: ellipsis; }
 /* ── 上段（日付・天気・状態）───────────── */
 .topbar {
   display: grid;
-  grid-template-columns: minmax(150px, auto) 1fr minmax(120px, auto);
+  /* 時計 / 天気（伸縮） / このPC / 状態 */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: var(--gap);
   align-items: stretch;
 }
-.clock, .weather, .status {
+.clock, .weather, .status, .sysbox {
   background: var(--bg-panel); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 9px 14px;
 }
 .clock {
   display: flex; flex-direction: column; justify-content: center;
-  min-width: 0;
+  padding: 14px 22px;          /* 欄ごと1.6倍 */
+  white-space: nowrap;
 }
-.date { font-size: 15px; color: var(--muted); }
-.time-row { display: flex; align-items: baseline; gap: 4px; }
+.date-row { display: flex; align-items: baseline; gap: 10px; }
+.date { font-size: 24px; color: var(--muted); }
+.time-row { display: flex; align-items: baseline; gap: 6px; }
 .time {
-  font-size: 54px; font-weight: 700; line-height: 1;
-  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  font-size: 86px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
 }
 .sec {
-  font-size: 22px; font-weight: 700; color: var(--accent);
+  font-size: 35px; font-weight: 700; color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
-.wday { font-size: 13px; color: var(--accent); }
+.wday { font-size: 21px; color: var(--accent); }
 
-.weather { display: flex; align-items: center; gap: 18px; overflow: hidden; }
-.wx-now { display: flex; align-items: center; gap: 10px; }
+.weather { display: flex; align-items: center; gap: 14px; overflow: hidden; min-width: 0; }
+.wx-now { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .wx-icon { font-size: 34px; line-height: 1; }
 .wx-temp { font-size: 27px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .wx-temp .unit { font-size: 14px; color: var(--muted); margin-left: 2px; }
 .wx-place { font-size: 11.5px; color: var(--muted); }
-.wx-detail { min-width: 0; flex: 1; }
+.wx-detail { min-width: 0; flex: 1 1 auto; }
 .wx-label { font-size: 14px; font-weight: 600; }
-.wx-sub { display: flex; gap: 12px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+.wx-sub {
+  display: flex; gap: 4px 12px; font-size: 11.5px; color: var(--muted);
+  flex-wrap: wrap;              /* 幅が足りなければ2行に折る */
+}
 .wx-today {
   font-size: 11.5px; color: var(--muted); margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -309,31 +315,35 @@ body.light .alert-headline { text-overflow: ellipsis; }
   .panel-body.sysgrid { padding: 6px 10px; }
 }
 
-/* ── システムモニター ───────────────────── */
-.panel.sys { flex: 0 0 auto; }
-.panel-body.sysgrid {
+/* ── システムモニター（上段・天気の横）─────
+   天気欄の余白に収まる大きさ。2列×3行の小さなチップで並べる。 */
+.sysbox {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 6px 10px; min-width: 0;
+}
+.sysbox-head {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 10px; color: var(--muted); margin-bottom: 3px; white-space: nowrap;
+}
+.sysbox-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
-  gap: 6px; padding: 8px 12px; overflow: visible;
+  grid-template-columns: repeat(2, minmax(76px, auto));
+  gap: 2px 10px;
 }
-.sys-tile {
-  background: var(--bg-head); border: 1px solid var(--line);
-  border-radius: 8px; padding: 5px 8px; min-width: 0;
+.sys-chip { min-width: 0; }
+.sys-chip .kv {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+  font-size: 11px; white-space: nowrap;
 }
-.sys-label {
-  font-size: 10px; color: var(--muted); white-space: nowrap;
+.sys-chip .k { color: var(--muted); }
+.sys-chip .v {
+  font-weight: 700; font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis;
 }
-.sys-value {
-  font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.sys-value .u { font-size: 10px; color: var(--muted); margin-left: 1px; font-weight: 400; }
-.sys-sub { font-size: 9.5px; color: var(--muted); white-space: nowrap;
-           overflow: hidden; text-overflow: ellipsis; }
+.sys-chip .v .u { font-size: 9px; color: var(--muted); font-weight: 400; margin-left: 1px; }
 .sys-bar {
-  height: 3px; border-radius: 2px; background: rgba(255,255,255,.09);
-  margin-top: 3px; overflow: hidden;
+  height: 2px; border-radius: 2px; background: rgba(255,255,255,.10);
+  margin-top: 1px; overflow: hidden;
 }
 .sys-bar > i {
   display: block; height: 100%; border-radius: 2px;
@@ -367,8 +377,10 @@ body.light .alert-headline { text-overflow: ellipsis; }
    高さに応じて段階的に詰めて、1画面を死守する。 */
 @media (max-height: 900px) {
   :root { --gap: 8px; }
-  .time { font-size: 46px; }
-  .sec { font-size: 19px; }
+  .time { font-size: 74px; }
+  .sec { font-size: 30px; }
+  .date { font-size: 21px; }
+  .clock { padding: 11px 18px; }
   .alertbar { min-height: 52px; padding: 8px 12px; }
   .clock, .weather, .status { padding: 7px 12px; }
   .wx-icon { font-size: 30px; }
@@ -376,22 +388,28 @@ body.light .alert-headline { text-overflow: ellipsis; }
 }
 @media (max-height: 800px) {
   :root { --gap: 7px; }
-  .time { font-size: 44px; }
-  .sec { font-size: 18px; }
-  .date { font-size: 13px; }
+  .time { font-size: 70px; }
+  .sec { font-size: 29px; }
+  .date { font-size: 20px; }
+  .wday { font-size: 17px; }
   .wx-today { display: none; }       /* 今日の予報文は天気ラベルと重複気味 */
   .panel-head { padding: 6px 10px; }
   .feed a { padding: 6px 12px; }
   .alert-meta { font-size: 11px; }
 }
 @media (max-height: 700px) {
-  .time { font-size: 40px; }
-  .sec { font-size: 17px; }
-  .sys-value { font-size: 14px; }
+  .time { font-size: 64px; }
+  .sec { font-size: 27px; }
+  .date { font-size: 18px; }
+  .wday { font-size: 15px; }
+  .clock { padding: 9px 14px; }
   .wx-week { display: none; }        /* 週間予報より記事の行数を優先 */
   .wx-sub { font-size: 11px; }
   .footer { display: none; }
   .item-meta { margin-top: 2px; }
+}
+@media (max-width: 1000px) {
+  .sysbox { display: none; }      /* 幅が足りなければPC情報を省く */
 }
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }

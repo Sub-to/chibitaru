@@ -273,10 +273,12 @@ function bar(pct, warn = 75, hot = 90) {
 }
 
 function tile(label, value, unit = "", sub = "", pct = null, warn = 75, hot = 90) {
-  return `<div class="sys-tile">
-    <div class="sys-label">${esc(label)}</div>
-    <div class="sys-value">${esc(value)}${unit ? `<span class="u">${esc(unit)}</span>` : ""}</div>
-    ${sub ? `<div class="sys-sub">${esc(sub)}</div>` : ""}
+  // 上段の狭い場所に置くので、名前と値を1行に詰めて下に細いバーを敷く
+  return `<div class="sys-chip" title="${esc(label)} ${esc(value)}${esc(unit)} ${esc(sub)}">
+    <div class="kv">
+      <span class="k">${esc(label)}</span>
+      <span class="v">${esc(value)}${unit ? `<span class="u">${esc(unit)}</span>` : ""}</span>
+    </div>
     ${bar(pct, warn, hot)}
   </div>`;
 }
@@ -293,11 +295,10 @@ function renderSys(d) {
   const tiles = [];
 
   tiles.push(tile("CPU", c.percent ?? "―", c.percent != null ? "%" : "",
-                  c.mhz ? `${c.mhz}MHz` : (c.cores ? `${c.cores}コア` : ""),
-                  c.percent));
+                  c.mhz ? `${c.mhz}MHz` : "", c.percent));
 
-  tiles.push(tile("メモリ", m.used ?? "―", m.used != null ? "GB" : "",
-                  m.total ? `/ ${m.total}GB` : "", m.percent));
+  tiles.push(tile("メモリ", m.percent ?? "―", m.percent != null ? "%" : "",
+                  m.total ? `${m.used}/${m.total}GB` : "", m.percent));
 
   tiles.push(tile("ディスク", k.free ?? "―", k.free != null ? "GB空" : "",
                   k.total ? `${k.percent}% 使用` : "", k.percent, 80, 92));
@@ -311,10 +312,9 @@ function renderSys(d) {
     tiles.push(tile("消費電力", p.watt, "W", p.source || ""));
   }
   if (p.battery != null) {
-    const st = p.status === "Charging" ? "⚡充電中"
-             : p.status === "Full" ? "満充電"
-             : (p.time_left ? `残り${p.time_left}` : (p.status || ""));
-    tiles.push(tile("電池", p.battery, "%", st, p.battery, 101, 102));
+    const mark = p.status === "Charging" ? "⚡" : p.status === "Full" ? "満" : "";
+    const st = p.time_left ? `残り${p.time_left}` : (p.status || "");
+    tiles.push(tile("電池" + mark, p.battery, "%", st, p.battery, 101, 102));
   }
 
   body.innerHTML = tiles.join("");

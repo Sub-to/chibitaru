@@ -35,11 +35,12 @@
 <!-- ══ 日付・時刻・天気 ══ -->
 <section class="topbar">
   <div class="clock">
-    <div id="date" class="date">――</div>
+    <div class="date-row">
+      <span id="date" class="date">――</span><span id="wday" class="wday"></span>
+    </div>
     <div class="time-row">
       <span id="time" class="time">--:--</span><span id="sec" class="sec">--</span>
     </div>
-    <div id="wday" class="wday"></div>
   </div>
 
   <div class="weather" id="weather">
@@ -62,6 +63,13 @@
     <div class="wx-week" id="wxWeek"></div>
   </div>
 
+  <div class="sysbox">
+    <div class="sysbox-head">
+      <span>💻 このPC</span><span id="sysUptime" class="muted"></span>
+    </div>
+    <div class="sysbox-grid" id="sysBody"></div>
+  </div>
+
   <div class="status">
     <button id="btnRefresh" class="btn" title="いま取り直す（R）">🔄 更新</button>
     <div id="updated" class="muted">―</div>
@@ -76,7 +84,6 @@
   <section class="col col-left">
     <div class="panel grow">
       <div class="panel-head">
-        <h2 class="tight">💡 テック</h2>
         <div class="tabs" data-group="left">
           <button class="tab active" data-tab="ai">🤖 AI</button>
           <button class="tab" data-tab="tech">💡 テック</button>
@@ -98,14 +105,6 @@
         <span id="fxUpdated" class="muted small">―</span>
       </div>
       <div class="panel-body row" id="fxBody"></div>
-    </div>
-
-    <div class="panel sys">
-      <div class="panel-head compact">
-        <h2>💻 このPC</h2>
-        <span id="sysUptime" class="muted small">―</span>
-      </div>
-      <div class="panel-body sysgrid" id="sysBody"></div>
     </div>
   </section>
 

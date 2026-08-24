@@ -116,7 +116,8 @@ CHIBITARU_DASH_PERF=light bash dashboard/start_dashboard.sh
 
 ## 💻 このPCの状態（システムモニター）
 
-左下に、この機械自身の様子を出しています。
+上段の**天気の横**に、この機械自身の様子を小さく出しています
+（ニュース欄を狭めないよう、空いている場所に収めています）。
 
 | 項目 | 内容 | 取得元 |
 |---|---|---|
@@ -139,6 +140,8 @@ python3 dashboard/server.py --sysmon
 温度が出ないときは `sudo apt install lm-sensors && sudo sensors-detect` で
 増えることがあります。消費電力はACのみ・満充電だと 0W になります
 （RAPL は root 専用のカーネルもあります）。
+
+横幅が1000px未満のときは、時計と天気を優先してこの欄を隠します。
 
 更新間隔は既定3秒。変えるなら:
 
