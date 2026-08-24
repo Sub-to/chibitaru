@@ -13,6 +13,7 @@ Inspired by the **Nagashino battle's rotating volley tactic** (1575), it deploys
 - 🦠 **ClamAV** — Virus scanning with offline DB (3.6M+ signatures)
 - 👁️ **Kuramaru** — Obsidian vault quality guardian
 - 👹 **Onimaru** — File integrity monitor
+- 🖥 **Dashboard** — One-screen view of weather, news, conflict & earthquake alerts, and FX rates ([details](dashboard/README.md)) — free, no API keys, logs to your Obsidian vault
 - 💻 **Cross-platform** — macOS / Linux / Windows 11
 
 ---
@@ -46,6 +47,12 @@ USB Drive
 │   ├── llama-server        ← macOS ARM binary
 │   ├── linux-x64/          ← Linux x64 binaries + .so
 │   └── win-x64/            ← Windows x64 binaries + .dll
+│
+├── dashboard/          ← 🖥 One-screen dashboard (stdlib only)
+│   ├── server.py       ← Local server + source diagnostics (--check)
+│   ├── providers.py    ← Weather / quake / FX / news
+│   ├── obsidian.py     ← Vault logger (graph-view links)
+│   └── static/         ← UI (no CDN, works offline)
 │
 ├── scan/clamdb/        ← Place CVD files here
 ├── install/            ← Agent installers

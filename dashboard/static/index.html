@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🔵 ちびたるダッシュボード</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🔵</text></svg>">
+</head>
+<body>
+
+<!-- ══ 紛争・地震アラート（赤帯）══ -->
+<header id="alertbar" class="alertbar calm">
+  <div class="alert-badge"><span id="alertIcon">🛡</span><span id="alertLabel">アラート</span></div>
+  <div class="alert-body">
+    <a id="alertHeadline" class="alert-headline" href="#" target="_blank" rel="noopener">情報を取得しています…</a>
+    <div id="alertMeta" class="alert-meta"></div>
+  </div>
+  <div id="quakeChip" class="quake-chip" hidden></div>
+  <button id="alertToggle" class="alert-toggle" title="すべてのアラートを見る">▾ <span id="alertCount">0</span></button>
+</header>
+
+<!-- アラート詳細（展開パネル） -->
+<section id="alertPanel" class="alert-panel" hidden>
+  <div class="tabs" data-group="alert">
+    <button class="tab active" data-tab="conflict">🚨 紛争・国際</button>
+    <button class="tab" data-tab="quake">🌏 地震（震度<span id="shindoMin">3</span>以上）</button>
+  </div>
+  <div class="alert-lists">
+    <div class="alert-list active" data-panel="conflict"><ul id="listConflict" class="feed"></ul></div>
+    <div class="alert-list" data-panel="quake"><ul id="listQuake" class="feed"></ul></div>
+  </div>
+</section>
+
+<!-- ══ 日付・時刻・天気 ══ -->
+<section class="topbar">
+  <div class="clock">
+    <div id="date" class="date">――</div>
+    <div id="time" class="time">--:--:--</div>
+    <div id="wday" class="wday"></div>
+  </div>
+
+  <div class="weather" id="weather">
+    <div class="wx-now">
+      <span id="wxIcon" class="wx-icon">🌡</span>
+      <div>
+        <div class="wx-temp"><span id="wxTemp">--</span><span class="unit">℃</span></div>
+        <div class="wx-place" id="wxPlace">宮崎県宮崎市</div>
+      </div>
+    </div>
+    <div class="wx-detail">
+      <div id="wxLabel" class="wx-label">―</div>
+      <div class="wx-sub">
+        <span id="wxRange">最高 -- / 最低 --</span>
+        <span id="wxHum">湿度 --%</span>
+        <span id="wxWind">風 -- km/h</span>
+      </div>
+      <div id="wxToday" class="wx-today">―</div>
+    </div>
+    <div class="wx-week" id="wxWeek"></div>
+  </div>
+
+  <div class="status">
+    <button id="btnRefresh" class="btn" title="いま取り直す（R）">🔄 更新</button>
+    <div id="updated" class="muted">―</div>
+    <div id="vaultState" class="muted">📓 ―</div>
+  </div>
+</section>
+
+<!-- ══ 本体 ══ -->
+<main class="grid">
+
+  <!-- 左：ガジェット / AI / テック / PC ＋ 為替 -->
+  <section class="col col-left">
+    <div class="panel grow">
+      <div class="panel-head">
+        <h2>💡 テック・AI・ガジェット</h2>
+        <div class="tabs" data-group="left">
+          <button class="tab active" data-tab="ai">🤖 AI</button>
+          <button class="tab" data-tab="tech">💡 テック</button>
+          <button class="tab" data-tab="gadget">📱 ガジェット</button>
+          <button class="tab" data-tab="pc">💻 PC</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <ul class="feed" data-feed="ai"></ul>
+        <ul class="feed hidden" data-feed="tech"></ul>
+        <ul class="feed hidden" data-feed="gadget"></ul>
+        <ul class="feed hidden" data-feed="pc"></ul>
+      </div>
+    </div>
+
+    <div class="panel fx">
+      <div class="panel-head compact">
+        <h2>💱 ドル・円・ユーロ</h2>
+        <span id="fxUpdated" class="muted small">―</span>
+      </div>
+      <div class="panel-body row" id="fxBody"></div>
+    </div>
+  </section>
+
+  <!-- 右：日本 / 宮崎 ＋ 世界 -->
+  <section class="col col-right">
+    <div class="panel grow">
+      <div class="panel-head">
+        <h2>🇯🇵 日本のニュース</h2>
+        <div class="tabs" data-group="jp">
+          <button class="tab active" data-tab="japan">全国</button>
+          <button class="tab" data-tab="miyazaki">🏞 宮崎県</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <ul class="feed" data-feed="japan"></ul>
+        <ul class="feed hidden" data-feed="miyazaki"></ul>
+      </div>
+    </div>
+
+    <div class="panel grow">
+      <div class="panel-head">
+        <h2>🌐 世界のニュース</h2>
+        <span id="worldCount" class="muted small"></span>
+      </div>
+      <div class="panel-body">
+        <ul class="feed" data-feed="world"></ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <span id="errors" class="muted small"></span>
+  <span class="muted small">1–4 / ←→ タブ切替 ・ R 更新 ・ F 全画面 ・ A アラート</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
