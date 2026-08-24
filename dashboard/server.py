@@ -28,6 +28,8 @@ sys.path.insert(0, str(BASE_DIR))
 import sources                              # noqa: E402
 import providers                            # noqa: E402
 import obsidian                             # noqa: E402
+import notify                               # noqa: E402
+import sysinfo                              # noqa: E402
 from config import CONFIG                   # noqa: E402
 from fetch import now_jst, iso, http_get, get_json  # noqa: E402
 
@@ -89,8 +91,19 @@ class Store:
                 "min_shindo":  CONFIG["alerts"]["min_shindo"],
                 "vault":       CONFIG["vault"],
                 "vault_on":    CONFIG["obsidian"]["enabled"],
+                "light_mode":  CONFIG.get("light_mode", False),
+                "ui_scale":    CONFIG.get("ui", {}).get("scale", "auto"),
             },
         }
+
+        # 強い地震はデスクトップ通知でも知らせる（常時表示機向け）
+        try:
+            n = notify.notify_quakes(quake.get("japan", []),
+                                     CONFIG["notify"]["min_shindo"])
+            if n:
+                print(f"🔔 地震通知 {n}件")
+        except Exception as e:
+            errors.append(f"通知: {e}")
 
         if write_vault:
             try:
@@ -306,7 +319,9 @@ def main():
     print(f"  🌐 {url}")
     print(f"  📓 Vault: {CONFIG['vault']}"
           f"{'' if CONFIG['obsidian']['enabled'] else '（記録OFF）'}")
-    print(f"  🚨 地震アラート: 震度{CONFIG['alerts']['min_shindo']}以上")
+    print(f"  🚨 地震アラート: 震度{CONFIG['alerts']['min_shindo']}以上"
+          f"（震度{CONFIG['notify']['min_shindo']}以上は通知）")
+    print(f"  💻 {sysinfo.describe(CONFIG['sysinfo'])}")
     print("  ⏹  終了は Ctrl+C")
     print("=" * 56)
 

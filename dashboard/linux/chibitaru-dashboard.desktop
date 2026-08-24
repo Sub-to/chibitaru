@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=ちびたるダッシュボード
+Name[en]=Chibitaru Dashboard
+Comment=宮崎市の天気・ニュース・紛争/地震アラートを1画面で
+Comment[en]=Weather, news and alerts on one screen
+Exec=bash "%k_DASH_DIR%/kiosk.sh"
+Icon=utilities-system-monitor
+Terminal=false
+Categories=Utility;News;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

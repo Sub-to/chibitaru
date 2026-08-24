@@ -28,6 +28,8 @@ html, body {
   overflow: hidden;               /* 1画面に固定 */
 }
 
+html { font-size: 100%; }        /* ← app.js が文字サイズ設定でここを変える */
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -57,6 +59,13 @@ body {
   box-shadow: 0 0 0 1px rgba(255,255,255,.06);
 }
 .alertbar.live { animation: pulse 2.4s ease-in-out infinite; }
+
+/* 非力なPC・省電力設定では点滅させない（box-shadowのアニメは再描画が重い） */
+body.light .alertbar.live,
+body.light .alertbar { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .alertbar.live { animation: none; }
+}
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 6px 18px rgba(214,31,43,.25); }
   50%      { box-shadow: 0 0 0 1px rgba(255,255,255,.22), 0 6px 30px rgba(255,59,71,.55); }
@@ -194,6 +203,28 @@ body {
   color: #fff; background: var(--accent); border-color: var(--accent); font-weight: 600;
 }
 
+/* ── タッチ画面（Surface などの指操作）─────
+   指で押せる大きさを確保する。マウス機では従来のまま。 */
+@media (pointer: coarse) {
+  .tab {
+    padding: 9px 14px;          /* 高さ44px相当まで広げる */
+    font-size: 13px;
+    min-height: 40px;
+    display: flex; align-items: center;
+  }
+  .tabs { gap: 6px; }
+  .feed a { padding: 11px 12px; }     /* 記事1件も指で押しやすく */
+  .btn { padding: 10px 14px; font-size: 13.5px; min-height: 40px; }
+  .alert-toggle { padding: 11px 16px; min-height: 42px; }
+  .alert-headline { font-size: 18px; }
+
+  /* タッチ機ではホバーが効かないので、押した瞬間の反応を出す */
+  .feed a:active, .tab:active, .btn:active { background: var(--bg-hover); }
+
+  /* 慣性スクロールを有効に */
+  .panel-body, .alert-list { -webkit-overflow-scrolling: touch; }
+}
+
 /* ── 記事リスト ─────────────────────────── */
 .feed { list-style: none; }
 .feed.hidden { display: none; }
@@ -250,6 +281,32 @@ body {
 /* ── 画面が狭いPC向け ───────────────────── */
 @media (max-width: 1180px) {
   .wx-week { display: none; }        /* 週間予報を隠して1画面を守る */
+}
+
+/* ── 縦が足りない画面向け（Surface 3 の 3:2 など）──
+   高さに応じて段階的に詰めて、1画面を死守する。 */
+@media (max-height: 900px) {
+  :root { --gap: 8px; }
+  .time { font-size: 26px; }
+  .alertbar { min-height: 52px; padding: 8px 12px; }
+  .clock, .weather, .status { padding: 7px 12px; }
+  .wx-icon { font-size: 30px; }
+  .wx-temp { font-size: 24px; }
+}
+@media (max-height: 800px) {
+  :root { --gap: 7px; }
+  .time { font-size: 23px; }
+  .date { font-size: 13px; }
+  .wx-today { display: none; }       /* 今日の予報文は天気ラベルと重複気味 */
+  .panel-head { padding: 6px 10px; }
+  .feed a { padding: 6px 12px; }
+  .alert-meta { font-size: 11px; }
+}
+@media (max-height: 700px) {
+  .wx-week { display: none; }        /* 週間予報より記事の行数を優先 */
+  .wx-sub { font-size: 11px; }
+  .footer { display: none; }
+  .item-meta { margin-top: 2px; }
 }
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }

@@ -52,6 +52,8 @@ USB Drive
 │   ├── server.py       ← Local server + source diagnostics (--check)
 │   ├── providers.py    ← Weather / quake / FX / news
 │   ├── obsidian.py     ← Vault logger (graph-view links)
+│   ├── kiosk.sh        ← Always-on display mode
+│   ├── linux/          ← GNOME app entry + autostart
 │   └── static/         ← UI (no CDN, works offline)
 │
 ├── scan/clamdb/        ← Place CVD files here

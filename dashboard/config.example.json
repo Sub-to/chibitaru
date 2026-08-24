@@ -28,6 +28,18 @@
     "conflict": 600
   },
 
+  "notify": {
+    "enabled": true,
+    "min_shindo": 4
+  },
+
+  "performance": "auto",
+
+  "ui": {
+    "scale": "auto",
+    "pause_when_hidden": true
+  },
+
   "obsidian": {
     "enabled": true,
     "folder": "Dashboard",

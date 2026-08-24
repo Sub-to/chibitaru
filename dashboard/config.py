@@ -69,6 +69,14 @@ DEFAULTS = {
         ["EUR", "USD"],
     ],
 
+    # ── デスクトップ通知 ─────────────────────
+    # 画面を見ていなくても強い地震に気づけるように。
+    # うるさければ enabled を false にする。
+    "notify": {
+        "enabled":     True,
+        "min_shindo":  4,     # 震度4以上だけ通知（画面には3以上を出す）
+    },
+
     # ── Obsidian 記録 ────────────────────────
     "obsidian": {
         "enabled":   True,
@@ -78,11 +86,45 @@ DEFAULTS = {
         "min_per_run": 0,
     },
 
+    # ── 画面まわり ───────────────────────────
+    "ui": {
+        # 文字の大きさ。"auto" は画面とタッチ有無から自動で決める。
+        # 数値（0.8〜1.6）で固定もできる。Surface 3 のような高精細小型画面では
+        # 既定のままだと文字が小さいので、自動で少し大きくする。
+        "scale": "auto",
+        # 常時表示（キオスク）向け: 画面が隠れている間は取得を止めて電池を守る
+        "pause_when_hidden": True,
+    },
+
+    # ── 性能プロファイル ─────────────────────
+    # "auto"   : PCの体力を見て自動で決める（Surface 3 などは軽量モード）
+    # "light"  : 常に軽量（アニメ無し・件数少なめ・更新ゆっくり）
+    # "normal" : 常に通常
+    "performance": "auto",
+
     "http": {
         "timeout":     15,
         "user_agent":  "ChibitaruDashboard/1.0 (personal use; stdlib urllib)",
         "max_workers": 8,
     },
+}
+
+
+# 軽量モードのときに上から被せる値（非力なPCを労わる設定）
+LIGHT_OVERRIDES = {
+    "intervals": {
+        "weather":  3600,   # 60分
+        "quake":     300,   # 5分（アラートなので短めは維持）
+        "fx":       3600,
+        "news":     1800,   # 30分
+        "conflict": 1200,
+    },
+    "limits": {
+        "per_feed": 8,
+        "per_tab":  20,     # DOMを軽くする（描画がAtomには重い）
+        "alerts":   8,
+    },
+    "http": {"max_workers": 3},   # 同時接続を絞ってCPUとメモリを節約
 }
 
 
@@ -123,8 +165,23 @@ def load() -> dict:
     if os.environ.get("CHIBITARU_DASH_NO_VAULT"):
         cfg["obsidian"]["enabled"] = False
 
-    cfg["vault"]     = str(vault_path())
-    cfg["cache_dir"] = str(CACHE_DIR)
+    # ── 性能プロファイルの決定 ──
+    import sysinfo
+    info = sysinfo.probe()
+
+    mode = os.environ.get("CHIBITARU_DASH_PERF", cfg.get("performance", "auto"))
+    if mode == "auto":
+        light = info["light"]
+    else:
+        light = (mode == "light")
+
+    if light:
+        cfg = _deep_merge(cfg, LIGHT_OVERRIDES)
+
+    cfg["light_mode"] = light
+    cfg["sysinfo"]    = info
+    cfg["vault"]      = str(vault_path())
+    cfg["cache_dir"]  = str(CACHE_DIR)
     return cfg
 
 

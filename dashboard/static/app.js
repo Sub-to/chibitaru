@@ -5,12 +5,14 @@
    ══════════════════════════════════════════ */
 
 const TZ = "Asia/Tokyo";
-const POLL_MS = 60_000;     // 画面側の再取得（サーバー側にキャッシュがあるので軽い）
-const ROTATE_MS = 7_000;    // 赤帯の見出しを入れ替える間隔
+let POLL_MS = 60_000;       // 画面側の再取得（サーバー側にキャッシュがあるので軽い）
+let ROTATE_MS = 7_000;      // 赤帯の見出しを入れ替える間隔
 
 let DATA = null;
 let alertItems = [];
 let alertIdx = 0;
+let pollTimer = null;
+let paused = false;         // 画面が隠れている間は止める（電池対策）
 
 const $  = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -64,6 +66,56 @@ function safeUrl(u) {
     const url = new URL(u, location.href);
     return (url.protocol === "http:" || url.protocol === "https:") ? url.href : "#";
   } catch { return "#"; }
+}
+
+/* ── 文字サイズ ─────────────────────────
+   Surface 3 のような高精細・小型画面だと既定では文字が小さいので、
+   タッチ機かつ横1500px以下なら自動で少し大きくする。
+   画面上で「+」「-」キーでも変えられ、この端末に記憶される。 */
+const SCALE_KEY = "chibitaru.scale";
+const SCALE_MIN = 0.85, SCALE_MAX = 1.6;
+
+function autoScale() {
+  const dpr = window.devicePixelRatio || 1;
+  const touch = matchMedia("(pointer: coarse)").matches;
+  const w = window.innerWidth;
+
+  // OS側で既に拡大されている高DPI画面（GNOMEの200%など）では、
+  // ここで更に拡大すると二重拡大になって行数が減る。何もしない。
+  if (dpr >= 1.75) return 1.0;
+  if (dpr >= 1.4)  return touch ? 1.05 : 1.0;
+
+  // 等倍のまま使っている高精細画面だけ、指で読める大きさに持ち上げる
+  if (touch && w <= 1500) return 1.15;
+  if (w <= 1300) return 1.05;
+  return 1.0;
+}
+
+function applyScale(v) {
+  const clamped = Math.min(SCALE_MAX, Math.max(SCALE_MIN, v));
+  // CSSはpx指定なので font-size では効かない。zoom で全体を拡縮する。
+  // （1.0 のときは指定を外して、ブラウザ既定のままにする）
+  document.documentElement.style.zoom = clamped === 1 ? "" : String(clamped);
+  try { localStorage.setItem(SCALE_KEY, String(clamped)); } catch {}
+  return clamped;
+}
+
+let uiScale = 1;
+function initScale(serverScale) {
+  let v = null;
+  try { v = parseFloat(localStorage.getItem(SCALE_KEY)); } catch {}
+  if (!v || isNaN(v)) {
+    v = (serverScale && serverScale !== "auto") ? parseFloat(serverScale) : autoScale();
+  }
+  uiScale = applyScale(v || 1);
+}
+
+function bumpScale(delta) {
+  uiScale = applyScale(uiScale + delta);
+  const el = $("#updated");
+  const keep = el.textContent;
+  el.textContent = `文字サイズ ${Math.round(uiScale * 100)}%`;
+  setTimeout(() => { el.textContent = keep; }, 1200);
 }
 
 /* ── 記事リスト描画 ─────────────────────── */
@@ -231,6 +283,13 @@ function render(d) {
     : (d.config?.vault_on === false ? "📓 記録OFF" : `📓 ${v.written ?? 0}件を記録`);
   $("#vaultState").title = v.error || v.daily || "";
 
+  // 非力なPC向け: アニメーションを止め、更新間隔を延ばす
+  if (d.config?.light_mode) {
+    document.body.classList.add("light");
+    POLL_MS = 180_000;      // 3分
+    ROTATE_MS = 12_000;
+  }
+
   const errs = d.errors || [];
   $("#errors").textContent = errs.length ? `⚠️ ${errs.length}件の情報源が取得できませんでした` : "";
   $("#errors").title = errs.join("\n");
@@ -281,6 +340,7 @@ function cycleTab(dir) {
 
 /* ── 起動 ───────────────────────────────── */
 function init() {
+  initScale();
   tickClock();
   setInterval(tickClock, 1000);
   initTabs();
@@ -300,17 +360,30 @@ function init() {
     if (k === "a") $("#alertToggle").click();
     if (k === "arrowright") cycleTab(1);
     if (k === "arrowleft")  cycleTab(-1);
+    if (k === "+" || k === ";" || e.key === "=") bumpScale(0.05);
+    if (k === "-") bumpScale(-0.05);
     if (["1", "2", "3", "4"].includes(k)) {
       const tabs = document.querySelectorAll('.tabs[data-group="left"] .tab');
       tabs[Number(k) - 1]?.click();
     }
   });
 
+  // 画面が隠れている間（ロック・最小化）は取得を止めて電池を節約する
+  document.addEventListener("visibilitychange", () => {
+    paused = document.hidden;
+    if (!paused) load(false);      // 復帰したら最新に追いつく
+  });
+
   load();
-  setInterval(() => load(false), POLL_MS);
+  schedulePoll();
   setInterval(() => {
-    if (alertItems.length > 1) showAlert(++alertIdx % alertItems.length);
+    if (!paused && alertItems.length > 1) showAlert(++alertIdx % alertItems.length);
   }, ROTATE_MS);
+}
+
+function schedulePoll() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(() => { if (!paused) load(false); }, POLL_MS);
 }
 
 document.addEventListener("DOMContentLoaded", init);

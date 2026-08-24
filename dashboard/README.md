@@ -20,18 +20,97 @@
 
 ## 🚀 使い方
 
-### macOS / Linux
+### Ubuntu / Linux
 ```bash
 bash dashboard/start_dashboard.sh
 ```
 
-### Windows 11
+### macOS
+```bash
+bash dashboard/start_dashboard.sh
+```
+
+### Windows
 `dashboard\start_dashboard.bat` をダブルクリック
 
 ブラウザが自動で開きます（`http://127.0.0.1:8787/`）。
 `start.sh` / `start.bat` のメニュー **5番** からも起動できます。
 
-> 全画面（F11 か画面上で **F** キー）にすると、サブモニタに置きっぱなしで使えます。
+> 全画面（F11 か画面上で **F** キー）にすると、置きっぱなしで使えます。
+
+---
+
+## 🖥 情報表示専用機として使う（延命モード）
+
+古いノートPCやタブレットを「常時表示のダッシュボード端末」にする使い方。
+**Surface Pro 3 + Ubuntu** で動作を確認しています。
+
+### 枠なし全画面で起動
+```bash
+bash dashboard/kiosk.sh              # キオスク（完全全画面）
+bash dashboard/kiosk.sh --window     # 枠付きウィンドウ
+```
+サーバーとブラウザをまとめて面倒みます。閉じるとサーバーも止まります。
+Chromium系があればアプリモード、無ければ Firefox、それも無ければ既定のブラウザを使います。
+Wayland も自動で見分けます。
+
+### アプリ一覧・自動起動に登録（GNOME）
+```bash
+bash dashboard/linux/install-desktop.sh              # アプリ一覧に追加
+bash dashboard/linux/install-desktop.sh --autostart  # ログイン時に自動で開く
+bash dashboard/linux/install-desktop.sh --remove     # 取り消し
+```
+
+### 画面を消さない設定
+```bash
+gsettings set org.gnome.desktop.session idle-delay 0
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+```
+
+### 非力なPCでの自動調整
+
+起動時にメモリとCPUを見て、**メモリ4.5GB未満**・**Atom/Celeron系**・**2コア以下**の
+いずれかなら自動で **軽量モード** に入ります。
+
+| | 通常 | 軽量 |
+|---|---|---|
+| 点滅アニメーション | あり | なし（再描画が重いため） |
+| 1タブの記事数 | 40件 | 20件 |
+| ニュース更新 | 15分 | 30分 |
+| 同時接続数 | 8 | 3 |
+
+手動で切り替えるなら `config.json` の `"performance"` を `"light"` / `"normal"` に。
+一時的に試すだけなら環境変数でも指定できます。
+
+```bash
+CHIBITARU_DASH_PERF=light bash dashboard/start_dashboard.sh
+```
+
+> Surface Pro 3（Core i5 / 8GB）は**通常モード**と判定されます。軽量化は不要なので、
+> そのままで問題ありません。
+
+### 電池の持ち
+
+画面が隠れている間（ロック・最小化）は自動で取得を止めます。
+復帰したときに最新へ追いつくので、放置していても情報が古いままにはなりません。
+
+---
+
+## 📐 文字が小さい / 大きいとき
+
+画面上で **`+`** と **`-`** キーで変えられます。設定はこの端末に記憶されます。
+
+高精細画面（Surface Pro 3 の 2160×1440 など）では、OS側の拡大率を見て
+二重拡大にならないよう自動調整しています。それでも好みに合わなければ上のキーでどうぞ。
+
+`config.json` で固定することもできます。
+
+```jsonc
+{ "ui": { "scale": 1.15 } }   // "auto" または 0.85〜1.6
+```
+
+縦の狭い画面（3:2 の Surface など）では、高さに応じて週間予報などを
+自動で隠して1画面を死守します。
 
 ---
 
@@ -69,6 +148,16 @@ bash dashboard/start_dashboard.sh
 > 実際に身の安全に関わる場面では、必ず気象庁・自治体・NHK の情報を直接確認してください。
 
 赤帯の右端 `▾` （または **A** キー）で全アラートの一覧が開きます。
+
+### デスクトップ通知
+
+画面を見ていなくても気づけるよう、**震度4以上**でOSの通知を出します
+（画面には震度3以上を表示）。同じ地震は一度だけ。うるさければ切れます。
+
+```jsonc
+{ "notify": { "enabled": false } }        // 通知しない
+{ "notify": { "min_shindo": 5 } }         // 震度5弱以上だけ
+```
 
 ---
 
@@ -129,8 +218,12 @@ python3 dashboard/server.py --check
 - 会社や学校のネットだと一部のRSSが塞がれていることがあります
 
 ### 1画面に収まらない
-ブラウザの拡大率を 90% / 80% に下げてください（Ctrl と `-`）。
-横1180px未満では週間予報を自動で隠します。
+画面上で **`-`** キーを押して文字を小さくしてください（設定は記憶されます）。
+横1180px未満・縦700px未満では、週間予報などを自動で隠して1画面を守ります。
+
+### 文字が小さすぎて読めない（高精細画面）
+**`+`** キーで大きくできます。Ubuntu 側の拡大率は
+「設定 → ディスプレイ → 拡大/縮小」で変えられます（Surface Pro 3 なら 200% が既定）。
 
 ---
 
@@ -143,6 +236,7 @@ python3 dashboard/server.py --check
 | `R` | いま取り直す |
 | `A` | アラート一覧の開閉 |
 | `F` | 全画面 |
+| `+` `-` | 文字サイズの拡大・縮小 |
 
 ---
 
