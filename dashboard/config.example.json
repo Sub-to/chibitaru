@@ -41,7 +41,8 @@
     "scale": "auto",
     "pause_when_hidden": true,
     "auto_scroll": true,
-    "sysmon_sec": 3
+    "sysmon_sec": 3,
+    "open_external": true
   },
 
   "obsidian": {

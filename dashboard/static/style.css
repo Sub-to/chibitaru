@@ -26,6 +26,16 @@
 html, body {
   height: 100%;
   overflow: hidden;               /* 1画面に固定 */
+  overscroll-behavior: none;
+}
+
+/* 全画面（キオスク）で画面がずり上がるのを防ぐ。
+   position:fixed で画面の左上に釘付けにしておくと、
+   フォーカス移動や慣性スクロールで内容がずれない。 */
+body {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  overflow-anchor: none;
 }
 
 html { font-size: 100%; }        /* ← app.js が文字サイズ設定でここを変える */
@@ -351,6 +361,17 @@ body.light .alert-headline { text-overflow: ellipsis; }
 }
 .sys-bar.warn > i { background: var(--warn); }
 .sys-bar.hot  > i { background: var(--alert-lit); }
+
+/* ── 通知（リンクを外で開いたときなど）───── */
+.toast {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  background: var(--bg-head); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 999px;
+  padding: 10px 20px; font-size: 14px; font-weight: 600;
+  box-shadow: 0 8px 28px rgba(0,0,0,.5); z-index: 50;
+  pointer-events: none; opacity: 0; transition: opacity .25s ease;
+}
+.toast.show { opacity: 1; }
 
 /* ── 足元 ───────────────────────────────── */
 .footer {

@@ -17,6 +17,7 @@ let AUTO_SCROLL = true;     // ニュースの自動スクロール
 let rotateTimer = null;     // 次のアラートへ切り替えるタイマー
 let holdMs = 7_000;         // 今のアラートを表示し続ける時間
 let SYS_MS = 3_000;         // このPCの状態を見にいく間隔
+let OPEN_EXTERNAL = true;   // リンクをこの画面の外で開く
 
 const $  = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -425,6 +426,7 @@ function render(d) {
   $("#vaultState").title = v.error || v.daily || "";
 
   if (d.config?.auto_scroll === false) AUTO_SCROLL = false;
+  if (d.config?.open_external === false) OPEN_EXTERNAL = false;
   if (d.config?.sysmon_sec) SYS_MS = d.config.sysmon_sec * 1000;
 
   // 非力なPC向け: アニメーションを止め、更新間隔を延ばす
@@ -438,6 +440,61 @@ function render(d) {
   const errs = d.errors || [];
   $("#errors").textContent = errs.length ? `⚠️ ${errs.length}件の情報源が取得できませんでした` : "";
   $("#errors").title = errs.join("\n");
+}
+
+/* ── 小さな通知 ─────────────────────────── */
+let toastTimer = null;
+function toast(msg, ms = 2600) {
+  const el = $("#toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = false;
+  requestAnimationFrame(() => el.classList.add("show"));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => { el.hidden = true; }, 300);
+  }, ms);
+}
+
+/* ── リンクは必ずこの画面の外で開く ─────────
+   全画面表示ではタブも閉じるボタンも無いため、画面内で開くと戻れなくなる。
+   サーバー経由でOSに開かせ、ダッシュボードは一切動かさない。 */
+function initLinks() {
+  document.addEventListener("click", async (ev) => {
+    const a = ev.target.closest("a[href]");
+    if (!a) return;
+    const href = a.getAttribute("href");
+    if (!href || href === "#" || href.startsWith("#")) return;
+    if (!OPEN_EXTERNAL) return;          // 設定で切っていれば従来どおり別タブ
+
+    ev.preventDefault();
+    ev.stopPropagation();
+    noteInteraction();
+
+    try {
+      const res = await fetch("/api/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: a.href }),
+      });
+      const j = await res.json();
+      if (j.ok) {
+        toast("🔗 別のウィンドウで開きました");
+      } else {
+        window.open(a.href, "_blank", "noopener");   // 駄目なら従来どおり
+      }
+    } catch {
+      window.open(a.href, "_blank", "noopener");
+    }
+  }, true);
+}
+
+/* 全画面でずり上がったときに備えて、常に左上へ戻す */
+function pinToTop() {
+  if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+  if (document.documentElement.scrollTop) document.documentElement.scrollTop = 0;
+  if (document.body.scrollTop) document.body.scrollTop = 0;
 }
 
 /* ── 通信 ───────────────────────────────── */
@@ -489,6 +546,14 @@ function init() {
   tickClock();
   setInterval(tickClock, 1000);
   initTabs();
+  initLinks();
+
+  // 全画面（キオスク）でずり上がる問題への保険。左上へ釘付けにする。
+  pinToTop();
+  ["resize", "orientationchange", "fullscreenchange", "focus"].forEach((ev) =>
+    window.addEventListener(ev, () => setTimeout(pinToTop, 60)));
+  document.addEventListener("scroll", pinToTop, { passive: true });
+  setInterval(pinToTop, 5_000);
 
   $("#btnRefresh").addEventListener("click", () => load(true));
   $("#alertToggle").addEventListener("click", () => {

@@ -61,6 +61,25 @@ bash dashboard/linux/install-desktop.sh --autostart  # ログイン時に自動�
 bash dashboard/linux/install-desktop.sh --remove     # 取り消し
 ```
 
+### 記事のリンクを押したとき
+
+全画面表示ではタブも閉じるボタンも無いため、画面内で記事を開くと**戻れなくなります**。
+そこでリンクを押すと、ダッシュボードはそのままで、**別の普通のブラウザウィンドウ**で
+記事が開きます（そちらはタブも閉じるボタンもあります）。
+
+仕組みは、押されたURLをローカルのサーバーへ渡し、OSの `xdg-open` に開かせるだけです。
+`http` / `https` 以外のリンクは弾きます。
+
+普通のウィンドウで使っていて、従来どおり別タブで開きたい場合は切れます。
+
+```jsonc
+{ "ui": { "open_external": false } }
+```
+
+### 全画面から抜けられなくなったら
+
+`Ctrl+W` か `Alt+F4`、または起動したターミナルで `Ctrl+C`。
+
 ### 画面を消さない設定
 ```bash
 gsettings set org.gnome.desktop.session idle-delay 0

@@ -57,6 +57,9 @@ for b in chromium chromium-browser google-chrome google-chrome-stable microsoft-
 done
 
 echo "🌐 $URL を開きます"
+echo ""
+echo "   ℹ️  記事のリンクは別のウィンドウで開きます（この画面は動きません）"
+echo "   ℹ️  全画面を抜けるには Ctrl+W / Alt+F4、または このターミナルで Ctrl+C"
 
 if [ -n "$BROWSER" ]; then
     ARGS=()

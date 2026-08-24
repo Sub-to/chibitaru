@@ -16,6 +16,8 @@ import sys
 import json
 import time
 import argparse
+import subprocess
+import urllib.parse
 import threading
 import webbrowser
 import datetime as dt
@@ -96,6 +98,7 @@ class Store:
                 "ui_scale":    CONFIG.get("ui", {}).get("scale", "auto"),
                 "auto_scroll": CONFIG.get("ui", {}).get("auto_scroll", True),
                 "sysmon_sec":  CONFIG.get("ui", {}).get("sysmon_sec", 3),
+                "open_external": CONFIG.get("ui", {}).get("open_external", True),
             },
         }
 
@@ -144,6 +147,40 @@ def background_loop(store: Store, stop: threading.Event):
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".js": "application/javascript; charset=utf-8", ".json": "application/json",
         ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+
+
+def open_externally(url: str) -> tuple[bool, str]:
+    """
+    記事をこの画面の外（普通のブラウザ窓）で開く。
+
+    キオスク表示ではタブも閉じるボタンも無く、画面内で開くと戻れなくなる。
+    そこでダッシュボードは一切動かさず、OSに開かせる。
+    シェルを経由せず、http/https 以外は弾く。
+    """
+    try:
+        u = urllib.parse.urlparse(url)
+    except Exception:
+        return False, "URLとして読めません"
+    if u.scheme not in ("http", "https") or not u.netloc:
+        return False, "http/https のリンクだけ開けます"
+
+    system = __import__("platform").system()
+    if system == "Linux":
+        cmd = ["xdg-open", url]
+    elif system == "Darwin":
+        cmd = ["open", url]
+    elif system == "Windows":
+        cmd = ["cmd", "/c", "start", "", url]
+    else:
+        return False, f"未対応のOS: {system}"
+
+    try:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True, "開きました"
+    except FileNotFoundError:
+        return False, f"{cmd[0]} が見つかりません"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -195,6 +232,24 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             return self._json({"ok": True, "time": iso(now_jst()),
                                "last_full": STORE.last_full})
+
+        return self._json({"error": "not found"}, 404)
+
+    def do_POST(self):
+        path = self.path.split("?")[0]
+
+        if path == "/api/open":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(min(length, 4096)).decode("utf-8", "replace")
+                url = (json.loads(body) or {}).get("url", "")
+            except Exception:
+                return self._json({"ok": False, "error": "読み取れません"}, 400)
+
+            ok, msg = open_externally(url)
+            if ok:
+                print(f"🔗 外部で開く: {url[:80]}")
+            return self._json({"ok": ok, "message": msg}, 200 if ok else 400)
 
         return self._json({"error": "not found"}, 404)
 
