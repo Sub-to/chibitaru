@@ -25,6 +25,7 @@ echo "  1: 🔵 セキュリティ監視開始（青い三連星）"
 echo "  2: 🦠 ウイルスチェック"
 echo "  3: 📦 エージェントインストール"
 echo "  4: 🔍 Vault品質チェック（蔵丸呼び出し）"
+echo "  5: 🖥 ダッシュボード（天気・ニュース・アラート）"
 echo "  0: 終了"
 echo ""
 read -p "選択 > " CHOICE
@@ -68,6 +69,11 @@ case $CHOICE in
         echo "⚠️  蔵丸が見つかりません（先にインストールしてください）"
         echo "   選択 3 → インストール → 蔵丸 を選ぶ"
     fi
+    ;;
+  5)
+    echo ""
+    echo "🖥 ダッシュボードを開きます..."
+    bash "$USB_DIR/dashboard/start_dashboard.sh"
     ;;
   0)
     echo "またね！"

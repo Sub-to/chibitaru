@@ -20,3 +20,7 @@ scan/clamdb/*.cld
 __pycache__/
 *.pyc
 *.pyo
+
+# ダッシュボードの個人設定・キャッシュ
+dashboard/config.json
+dashboard/__pycache__/

@@ -19,6 +19,7 @@ echo   1: 🔵 セキュリティ監視開始（青い三連星）
 echo   2: 🦠 ウイルスチェック（ClamAV必要）
 echo   3: 📦 エージェントインストール
 echo   4: 🔍 Vault品質チェック（蔵丸）
+echo   5: 🖥 ダッシュボード（天気・ニュース・アラート）
 echo   0: 終了
 echo.
 set /p CHOICE=選択 ^>
@@ -27,6 +28,7 @@ if "%CHOICE%"=="1" goto MONITOR
 if "%CHOICE%"=="2" goto VIRUS
 if "%CHOICE%"=="3" goto INSTALL
 if "%CHOICE%"=="4" goto VAULT
+if "%CHOICE%"=="5" goto DASHBOARD
 if "%CHOICE%"=="0" goto END
 echo ？
 goto END
@@ -87,6 +89,12 @@ if "%INST_CHOICE%"=="3" (
     if exist "%USB_DIR%\install\kuramaru.py" copy /Y "%USB_DIR%\install\kuramaru.py" "%INSTALL_DIR%\"
     echo ✅ 全インストール完了: %INSTALL_DIR%\
 )
+goto END
+
+:DASHBOARD
+echo.
+echo 🖥 ダッシュボードを開きます...
+call "%USB_DIR%\dashboard\start_dashboard.bat"
 goto END
 
 :VAULT

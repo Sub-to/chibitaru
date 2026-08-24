@@ -1,0 +1,439 @@
+/* ══════════════════════════════════════════
+   🔵 ちびたるダッシュボード
+   1画面に収まるレイアウト（ページ自体はスクロールしない／
+   各パネルの中だけスクロールする）
+   ══════════════════════════════════════════ */
+
+:root {
+  --bg:        #0b1017;
+  --bg-panel:  #131a24;
+  --bg-head:   #1a2330;
+  --bg-hover:  #1e2938;
+  --line:      #26313f;
+  --text:      #e8eef6;
+  --muted:     #8899ab;
+  --accent:    #4aa8ff;   /* 青っ子の青 */
+  --alert:     #d61f2b;
+  --alert-lit: #ff3b47;
+  --ok:        #2fa96b;
+  --warn:      #e8a33d;
+  --radius:    10px;
+  --gap:       10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;               /* 1画面に固定 */
+  overscroll-behavior: none;
+}
+
+/* 全画面（キオスク）で画面がずり上がるのを防ぐ。
+   position:fixed で画面の左上に釘付けにしておくと、
+   フォーカス移動や慣性スクロールで内容がずれない。 */
+body {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  overflow-anchor: none;
+}
+
+html { font-size: 100%; }        /* ← app.js が文字サイズ設定でここを変える */
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo",
+               "Noto Sans JP", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;   /* 赤帯 / 展開 / 上段 / 本体 / 足元 */
+  gap: var(--gap);
+  padding: var(--gap);
+}
+
+/* ── 赤いアラート帯 ─────────────────────── */
+.alertbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  /* グリッド項目の min-width は既定が auto。nowrapな子に押し広げられて
+     画面外へはみ出すので、0にして必ず縮むようにする。 */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, var(--alert) 0%, #a3161f 100%);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 6px 18px rgba(214,31,43,.28);
+  min-height: 58px;
+}
+.alertbar.calm {                  /* アラートが無いときは静かな色に */
+  background: linear-gradient(90deg, #16352a 0%, #12251d 100%);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.06);
+}
+.alertbar.live { animation: pulse 2.4s ease-in-out infinite; }
+
+/* 非力なPC・省電力設定では点滅させない（box-shadowのアニメは再描画が重い） */
+body.light .alertbar.live,
+body.light .alertbar { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .alertbar.live { animation: none; }
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 6px 18px rgba(214,31,43,.25); }
+  50%      { box-shadow: 0 0 0 1px rgba(255,255,255,.22), 0 6px 30px rgba(255,59,71,.55); }
+}
+
+.alert-badge {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 7px;
+  font-weight: 700; font-size: 13px; letter-spacing: .04em;
+  padding: 5px 11px; border-radius: 999px;
+  background: rgba(0,0,0,.28); white-space: nowrap;
+}
+.alert-body { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.alert-headline {
+  display: block; color: #fff; font-size: 19px; font-weight: 700;
+  text-decoration: none; overflow: hidden; white-space: nowrap;
+  min-width: 0; max-width: 100%;
+}
+.alert-headline > span { display: inline-block; will-change: transform; }
+
+/* 収まらないときだけ、ゆっくり横に流す。
+   両端で少し止まるので読み取りやすい。 */
+.alert-headline.scroll > span {
+  animation: marquee var(--dur, 12s) linear infinite;
+}
+@keyframes marquee {
+  0%,   12%  { transform: translateX(0); }
+  88%,  100% { transform: translateX(var(--shift, 0)); }
+}
+/* 省電力・低スペック時は流さず「…」で省略（再描画を減らす） */
+body.light .alert-headline.scroll > span { animation: none; }
+body.light .alert-headline { text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) {
+  .alert-headline.scroll > span { animation: none; }
+  .alert-headline { text-overflow: ellipsis; }
+}
+
+.alert-headline:hover { text-decoration: underline; }
+.alert-meta {
+  font-size: 11.5px; color: rgba(255,255,255,.75); margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.quake-chip {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 8px;
+  background: rgba(0,0,0,.32); font-size: 13px; white-space: nowrap;
+}
+.quake-chip .sh {
+  font-size: 19px; font-weight: 800; color: #ffd34d; line-height: 1;
+}
+.alert-toggle {
+  flex: 0 0 auto;
+  background: rgba(0,0,0,.3); color: #fff; border: 0; cursor: pointer;
+  padding: 7px 12px; border-radius: 8px; font-size: 13px; font-weight: 700;
+}
+.alert-toggle:hover { background: rgba(0,0,0,.5); }
+
+/* 展開パネル */
+/* hidden属性を display:flex/grid より優先させる（これが無いと開きっぱなしになる） */
+[hidden] { display: none !important; }
+
+.alert-panel {
+  background: var(--bg-panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 8px 10px 10px;
+  max-height: 30vh; display: flex; flex-direction: column;
+}
+.alert-lists { overflow: hidden; flex: 1; }
+.alert-list { display: none; height: 100%; overflow-y: auto; }
+.alert-list.active { display: block; }
+
+/* ── 上段（日付・天気・状態）───────────── */
+.topbar {
+  display: grid;
+  /* 時計 / 天気（伸縮） / このPC / 状態 */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: var(--gap);
+  align-items: stretch;
+}
+.clock, .weather, .status, .sysbox {
+  background: var(--bg-panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 9px 14px;
+}
+.clock {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 14px 22px;          /* 欄ごと1.6倍 */
+  white-space: nowrap;
+}
+.date-row { display: flex; align-items: baseline; gap: 10px; }
+.date { font-size: 24px; color: var(--muted); }
+.time-row { display: flex; align-items: baseline; gap: 6px; }
+.time {
+  font-size: 86px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.sec {
+  font-size: 35px; font-weight: 700; color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.wday { font-size: 21px; color: var(--accent); }
+
+.weather { display: flex; align-items: center; gap: 14px; overflow: hidden; min-width: 0; }
+.wx-now { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.wx-icon { font-size: 34px; line-height: 1; }
+.wx-temp { font-size: 27px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.wx-temp .unit { font-size: 14px; color: var(--muted); margin-left: 2px; }
+.wx-place { font-size: 11.5px; color: var(--muted); }
+.wx-detail { min-width: 0; flex: 1 1 auto; }
+.wx-label { font-size: 14px; font-weight: 600; }
+.wx-sub {
+  display: flex; gap: 4px 12px; font-size: 11.5px; color: var(--muted);
+  flex-wrap: wrap;              /* 幅が足りなければ2行に折る */
+}
+.wx-today {
+  font-size: 11.5px; color: var(--muted); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wx-week { display: flex; gap: 6px; }
+.wx-day {
+  text-align: center; font-size: 10.5px; color: var(--muted);
+  background: var(--bg-head); border-radius: 7px; padding: 4px 6px; min-width: 42px;
+}
+.wx-day .i { font-size: 15px; display: block; }
+.wx-day .t { color: var(--text); font-size: 10.5px; }
+.wx-day .hi { color: #ff8f6b; } .wx-day .lo { color: #6bb6ff; }
+
+.status { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.btn {
+  background: var(--bg-head); color: var(--text); border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12.5px;
+}
+.btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+.btn.loading { opacity: .55; pointer-events: none; }
+
+/* ── 本体グリッド ───────────────────────── */
+.grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) 1.15fr;   /* 左：ガジェット / 右：ニュース */
+  gap: var(--gap);
+  min-height: 0;
+}
+.col { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
+.col-right .panel { flex: 1 1 50%; }
+
+.panel {
+  background: var(--bg-panel); border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.panel.grow { flex: 1; }
+.panel.fx { flex: 0 0 auto; }
+
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 8px 12px; background: var(--bg-head);
+  border-bottom: 1px solid var(--line); flex-wrap: wrap;
+}
+.panel-head.compact { padding: 6px 12px; }
+.panel-head h2 { font-size: 13px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
+.panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0; }
+.panel-body.row {
+  display: flex; gap: 8px; padding: 9px 12px; overflow: visible; flex-wrap: wrap;
+}
+
+/* ── タブ ───────────────────────────────── */
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tab {
+  background: transparent; color: var(--muted); border: 1px solid transparent;
+  border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12px;
+  font-family: inherit; white-space: nowrap;
+}
+.tab:hover { color: var(--text); background: var(--bg-hover); }
+.tab.active {
+  color: #fff; background: var(--accent); border-color: var(--accent); font-weight: 600;
+}
+
+/* ── タッチ画面（Surface などの指操作）─────
+   指で押せる大きさを確保する。マウス機では従来のまま。 */
+@media (pointer: coarse) {
+  .tab {
+    padding: 9px 14px;          /* 高さ44px相当まで広げる */
+    font-size: 13px;
+    min-height: 40px;
+    display: flex; align-items: center;
+  }
+  .tabs { gap: 6px; }
+  .feed a { padding: 11px 12px; }     /* 記事1件も指で押しやすく */
+  .btn { padding: 10px 14px; font-size: 13.5px; min-height: 40px; }
+  .alert-toggle { padding: 11px 16px; min-height: 42px; }
+  .alert-headline { font-size: 18px; }
+
+  /* タッチ機ではホバーが効かないので、押した瞬間の反応を出す */
+  .feed a:active, .tab:active, .btn:active { background: var(--bg-hover); }
+
+  /* 慣性スクロールを有効に */
+  .panel-body, .alert-list { -webkit-overflow-scrolling: touch; }
+}
+
+/* ── 記事リスト ─────────────────────────── */
+.feed { list-style: none; }
+.feed.hidden { display: none; }
+.feed li { border-bottom: 1px solid rgba(255,255,255,.045); }
+.feed li:last-child { border-bottom: 0; }
+.feed a {
+  display: block; padding: 7px 12px; color: var(--text); text-decoration: none;
+}
+.feed a:hover { background: var(--bg-hover); }
+.item-title {
+  font-size: 13px; line-height: 1.38; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.item-meta {
+  display: flex; gap: 8px; align-items: center; margin-top: 3px;
+  font-size: 10.5px; color: var(--muted);
+}
+.src {
+  background: var(--bg-head); border-radius: 4px; padding: 1px 6px;
+  color: var(--accent); max-width: 45%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.fresh { color: var(--warn); }        /* 1時間以内 */
+.item-shindo {
+  background: var(--alert); color: #fff; border-radius: 4px;
+  padding: 1px 7px; font-weight: 700;
+}
+
+/* ── 為替 ───────────────────────────────── */
+.fx-card {
+  flex: 1 1 30%; min-width: 92px;
+  background: var(--bg-head); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 10px;
+}
+.fx-pair { font-size: 10.5px; color: var(--muted); }
+.fx-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* 見出しとタブを1行に収める（折り返すと記事1件分の高さを損する） */
+.panel-head h2.tight { font-size: 12.5px; }
+@media (max-height: 800px) {
+  .panel-head { padding: 5px 10px; }
+  .panel.fx .panel-body.row { padding: 6px 10px; }
+  .panel-body.sysgrid { padding: 6px 10px; }
+}
+
+/* ── システムモニター（上段・天気の横）─────
+   天気欄の余白に収まる大きさ。2列×3行の小さなチップで並べる。 */
+.sysbox {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 6px 10px; min-width: 0;
+}
+.sysbox-head {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 10px; color: var(--muted); margin-bottom: 3px; white-space: nowrap;
+}
+.sysbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(76px, auto));
+  gap: 2px 10px;
+}
+.sys-chip { min-width: 0; }
+.sys-chip .kv {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+  font-size: 11px; white-space: nowrap;
+}
+.sys-chip .k { color: var(--muted); }
+.sys-chip .v {
+  font-weight: 700; font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.sys-chip .v .u { font-size: 9px; color: var(--muted); font-weight: 400; margin-left: 1px; }
+.sys-bar {
+  height: 2px; border-radius: 2px; background: rgba(255,255,255,.10);
+  margin-top: 1px; overflow: hidden;
+}
+.sys-bar > i {
+  display: block; height: 100%; border-radius: 2px;
+  background: var(--accent); transition: width .5s ease;
+}
+.sys-bar.warn > i { background: var(--warn); }
+.sys-bar.hot  > i { background: var(--alert-lit); }
+
+/* ── 通知（リンクを外で開いたときなど）───── */
+.toast {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  background: var(--bg-head); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 999px;
+  padding: 10px 20px; font-size: 14px; font-weight: 600;
+  box-shadow: 0 8px 28px rgba(0,0,0,.5); z-index: 50;
+  pointer-events: none; opacity: 0; transition: opacity .25s ease;
+}
+.toast.show { opacity: 1; }
+
+/* ── 足元 ───────────────────────────────── */
+.footer {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 0 4px; min-height: 15px;
+}
+.muted { color: var(--muted); }
+.small { font-size: 11px; }
+.empty { padding: 16px 12px; color: var(--muted); font-size: 12px; text-align: center; }
+
+/* スクロールバーを控えめに */
+.panel-body::-webkit-scrollbar, .alert-list::-webkit-scrollbar { width: 8px; }
+.panel-body::-webkit-scrollbar-thumb, .alert-list::-webkit-scrollbar-thumb {
+  background: #2b3746; border-radius: 4px;
+}
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+
+/* ── 画面が狭いPC向け ───────────────────── */
+@media (max-width: 1180px) {
+  .wx-week { display: none; }        /* 週間予報を隠して1画面を守る */
+}
+
+/* ── 縦が足りない画面向け（Surface 3 の 3:2 など）──
+   高さに応じて段階的に詰めて、1画面を死守する。 */
+@media (max-height: 900px) {
+  :root { --gap: 8px; }
+  .time { font-size: 74px; }
+  .sec { font-size: 30px; }
+  .date { font-size: 21px; }
+  .clock { padding: 11px 18px; }
+  .alertbar { min-height: 52px; padding: 8px 12px; }
+  .clock, .weather, .status { padding: 7px 12px; }
+  .wx-icon { font-size: 30px; }
+  .wx-temp { font-size: 24px; }
+}
+@media (max-height: 800px) {
+  :root { --gap: 7px; }
+  .time { font-size: 70px; }
+  .sec { font-size: 29px; }
+  .date { font-size: 20px; }
+  .wday { font-size: 17px; }
+  .wx-today { display: none; }       /* 今日の予報文は天気ラベルと重複気味 */
+  .panel-head { padding: 6px 10px; }
+  .feed a { padding: 6px 12px; }
+  .alert-meta { font-size: 11px; }
+}
+@media (max-height: 700px) {
+  .time { font-size: 64px; }
+  .sec { font-size: 27px; }
+  .date { font-size: 18px; }
+  .wday { font-size: 15px; }
+  .clock { padding: 9px 14px; }
+  .wx-week { display: none; }        /* 週間予報より記事の行数を優先 */
+  .wx-sub { font-size: 11px; }
+  .footer { display: none; }
+  .item-meta { margin-top: 2px; }
+}
+@media (max-width: 1000px) {
+  .sysbox { display: none; }      /* 幅が足りなければPC情報を省く */
+}
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+  .topbar { grid-template-columns: auto 1fr; }
+  .status { display: none; }
+}

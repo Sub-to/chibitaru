@@ -1,0 +1,53 @@
+{
+  "_説明": "このファイルを config.json にコピーすると設定を上書きできます（全部書く必要はなく、変えたい項目だけでOK）",
+
+  "vault": "~/ObsidianVault",
+
+  "port": 8787,
+  "open_browser": true,
+
+  "location": {
+    "name": "宮崎市",
+    "pref": "宮崎県",
+    "lat": 31.9111,
+    "lon": 131.4239,
+    "jma_area": "450000",
+    "jma_class10": "450010"
+  },
+
+  "alerts": {
+    "min_shindo": 3,
+    "world_quake_mag": 6.0,
+    "quake_hours": 24,
+    "conflict_hours": 48
+  },
+
+  "intervals": {
+    "weather": 1800,
+    "quake": 180,
+    "fx": 1800,
+    "news": 900,
+    "conflict": 600
+  },
+
+  "notify": {
+    "enabled": true,
+    "min_shindo": 4
+  },
+
+  "performance": "auto",
+
+  "ui": {
+    "scale": "auto",
+    "pause_when_hidden": true,
+    "auto_scroll": true,
+    "sysmon_sec": 3,
+    "open_external": true
+  },
+
+  "obsidian": {
+    "enabled": true,
+    "folder": "Dashboard",
+    "article_notes": false
+  }
+}
