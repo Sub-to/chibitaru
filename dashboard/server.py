@@ -30,6 +30,7 @@ import providers                            # noqa: E402
 import obsidian                             # noqa: E402
 import notify                               # noqa: E402
 import sysinfo                              # noqa: E402
+import sysmon                               # noqa: E402
 from config import CONFIG                   # noqa: E402
 from fetch import now_jst, iso, http_get, get_json  # noqa: E402
 
@@ -93,6 +94,8 @@ class Store:
                 "vault_on":    CONFIG["obsidian"]["enabled"],
                 "light_mode":  CONFIG.get("light_mode", False),
                 "ui_scale":    CONFIG.get("ui", {}).get("scale", "auto"),
+                "auto_scroll": CONFIG.get("ui", {}).get("auto_scroll", True),
+                "sysmon_sec":  CONFIG.get("ui", {}).get("sysmon_sec", 3),
             },
         }
 
@@ -181,6 +184,13 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/refresh":
             return self._json(STORE.refresh())
+
+        if path == "/api/sys":
+            # このPC自身の状態。/proc と /sys を読むだけなので軽い。
+            try:
+                return self._json(sysmon.snapshot())
+            except Exception as e:
+                return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
 
         if path == "/api/health":
             return self._json({"ok": True, "time": iso(now_jst()),
@@ -271,6 +281,59 @@ def run_check() -> int:
 
 
 # ─────────────────────────────────────────────
+#  センサー確認（--sysmon）
+# ─────────────────────────────────────────────
+
+def run_sysmon() -> int:
+    """このPCで温度・電力などが読めるか確認する。"""
+    import time as _t
+    print("=" * 56)
+    print("💻 このPCの状態（センサー確認）")
+    print("=" * 56)
+    sysmon.snapshot()          # CPU差分の基準づくり
+    _t.sleep(1.2)
+    sysmon._cache_at = 0
+    d = sysmon.snapshot()
+
+    c, m, k, t, p = d["cpu"], d["memory"], d["disk"], d["temp"], d["power"]
+
+    print(f'  CPU      {c["percent"]}%  '
+          f'{c["cores"]}コア  {c["mhz"] or "?"}MHz  '
+          f'負荷{c["load"] or "―"}')
+    print(f'  メモリ    {m["used"]}/{m["total"]} GB ({m["percent"]}%)')
+    print(f'  ディスク  {k["used"]}/{k["total"]} GB 使用 '
+          f'({k["percent"]}%) 空き{k["free"]}GB')
+    print(f'  稼働時間  {d["uptime"] or "―"}')
+
+    if t["cpu"] is not None:
+        print(f'  🌡 温度   {t["cpu"]}℃  （{t["source"]}）')
+        if len(t["all"]) > 1:
+            for x in t["all"][:6]:
+                print(f'             ├ {x["name"]}: {x["c"]}℃')
+    else:
+        print("  🌡 温度   ❌ 読めません")
+        print("     → この機種にセンサーが無いか、権限が足りません")
+        print("     → lm-sensors を入れると増えることがあります: sudo apt install lm-sensors && sudo sensors-detect")
+
+    if p["watt"] is not None:
+        print(f'  ⚡ 消費電力 {p["watt"]}W （{p["source"]}）')
+    else:
+        print("  ⚡ 消費電力 ❌ 読めません")
+        print("     → ACのみで電池が無い/満充電だと0Wになります")
+        print("     → RAPL(/sys/class/powercap)はroot専用のことがあります")
+    if p["cpu_watt"] is not None:
+        print(f'     CPU単体: {p["cpu_watt"]}W')
+    if p["battery"] is not None:
+        print(f'  🔋 電池   {p["battery"]}%  {p["status"] or ""}'
+              f'{"  残り" + p["time_left"] if p["time_left"] else ""}')
+    else:
+        print("  🔋 電池   ❌ 見つかりません（デスクトップ機なら正常）")
+
+    print("=" * 56)
+    return 0
+
+
+# ─────────────────────────────────────────────
 #  Vault の用意（--init-vault）
 # ─────────────────────────────────────────────
 
@@ -330,6 +393,8 @@ def main():
     ap.add_argument("--host", default=CONFIG["host"])
     ap.add_argument("--check", action="store_true", help="情報源が生きているか確認する")
     ap.add_argument("--once",  action="store_true", help="1回だけ取得してVaultに記録して終了")
+    ap.add_argument("--sysmon", action="store_true",
+                    help="温度・電力などのセンサーが読めるか確認する")
     ap.add_argument("--init-vault", action="store_true",
                     help="記録先のフォルダを作る（既にあれば壊さない）")
     ap.add_argument("--no-browser", action="store_true", help="ブラウザを自動で開かない")
@@ -338,6 +403,9 @@ def main():
 
     if args.no_vault:
         CONFIG["obsidian"]["enabled"] = False
+
+    if args.sysmon:
+        return run_sysmon()
 
     if args.init_vault:
         return run_init_vault()

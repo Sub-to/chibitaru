@@ -13,6 +13,10 @@ let alertItems = [];
 let alertIdx = 0;
 let pollTimer = null;
 let paused = false;         // 画面が隠れている間は止める（電池対策）
+let AUTO_SCROLL = true;     // ニュースの自動スクロール
+let rotateTimer = null;     // 次のアラートへ切り替えるタイマー
+let holdMs = 7_000;         // 今のアラートを表示し続ける時間
+let SYS_MS = 3_000;         // このPCの状態を見にいく間隔
 
 const $  = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -29,7 +33,8 @@ function tickClock() {
   }).formatToParts(now).reduce((a, x) => (a[x.type] = x.value, a), {});
 
   $("#date").textContent = `${p.year}年${p.month}月${p.day}日`;
-  $("#time").textContent = `${p.hour}:${p.minute}:${p.second}`;
+  $("#time").textContent = `${p.hour}:${p.minute}`;
+  $("#sec").textContent  = p.second;
   $("#wday").textContent = `${p.weekday}曜日`;
 }
 
@@ -160,6 +165,7 @@ function renderAlerts(d) {
   $("#alertCount").textContent = count;
 
   if (count === 0) {
+    clearTimeout(rotateTimer);
     bar.classList.add("calm");
     bar.classList.remove("live");
     $("#alertIcon").textContent = "🛡";
@@ -208,10 +214,145 @@ function showAlert(i) {
   const it = alertItems[i];
   if (!it) return;
   const a = $("#alertHeadline");
-  a.textContent = it.title;
+  const t = $("#alertText");
+  t.textContent = it.title;
   if (it.link) a.href = safeUrl(it.link); else a.removeAttribute("href");
   $("#alertMeta").textContent =
     `${it.source || ""} ・ ${hhmm(it.published)}（${ago(it.published)}） ・ ${i + 1}/${alertItems.length}`;
+
+  requestAnimationFrame(() => {
+    const dur = fitHeadline();
+    // 実際に流れているときだけ、読み終わるまで待つ。
+    // 軽量モードや動きを抑える設定では流さない（＝「…」で省略）ので待たない。
+    const still = document.body.classList.contains("light") ||
+                  matchMedia("(prefers-reduced-motion: reduce)").matches;
+    holdMs = (dur && !still) ? Math.round(dur * 1000 + 1500) : ROTATE_MS;
+    scheduleRotate();
+  });
+}
+
+/* 次のアラートへ切り替える予約。表示時間は見出しの長さで変わる。 */
+function scheduleRotate() {
+  clearTimeout(rotateTimer);
+  if (alertItems.length <= 1) return;   // 1件だけなら流しっぱなしでよい
+  rotateTimer = setTimeout(() => {
+    if (paused) { scheduleRotate(); return; }
+    showAlert(++alertIdx % alertItems.length);   // 次の予約はこの中で行う
+  }, holdMs);
+}
+
+/* 長い見出しは枠に収まらないので、はみ出した分だけ横に流す。
+   収まるものは動かさない（常に動いていると読みにくいため）。 */
+function fitHeadline() {
+  const a = $("#alertHeadline");
+  const t = $("#alertText");
+  if (!a || !t) return 0;
+
+  a.classList.remove("scroll");
+  a.style.removeProperty("--shift");
+  a.style.removeProperty("--dur");
+
+  const over = t.scrollWidth - a.clientWidth;
+  if (over > 8) {
+    const shift = over + 24;                     // 端まで見せてから少し余白
+    // 動く区間は全体の76%（前後で止まる分を除く）。毎秒55px前後で流れるようにする。
+    const dur = Math.max(9, Math.round(shift / 55) + 5);
+    a.style.setProperty("--shift", `-${shift}px`);
+    a.style.setProperty("--dur", `${dur}s`);
+    a.classList.add("scroll");
+    return dur;
+  }
+  return 0;
+}
+
+/* ── システムモニター ───────────────────── */
+function bar(pct, warn = 75, hot = 90) {
+  if (pct == null) return "";
+  const cls = pct >= hot ? "hot" : pct >= warn ? "warn" : "";
+  return `<div class="sys-bar ${cls}"><i style="width:${Math.min(100, Math.max(0, pct))}%"></i></div>`;
+}
+
+function tile(label, value, unit = "", sub = "", pct = null, warn = 75, hot = 90) {
+  return `<div class="sys-tile">
+    <div class="sys-label">${esc(label)}</div>
+    <div class="sys-value">${esc(value)}${unit ? `<span class="u">${esc(unit)}</span>` : ""}</div>
+    ${sub ? `<div class="sys-sub">${esc(sub)}</div>` : ""}
+    ${bar(pct, warn, hot)}
+  </div>`;
+}
+
+function renderSys(d) {
+  const body = $("#sysBody");
+  if (!body) return;
+  if (!d || d.error) {
+    body.innerHTML = `<div class="empty">状態を取得できません</div>`;
+    return;
+  }
+  const c = d.cpu || {}, m = d.memory || {}, k = d.disk || {},
+        t = d.temp || {}, p = d.power || {};
+  const tiles = [];
+
+  tiles.push(tile("CPU", c.percent ?? "―", c.percent != null ? "%" : "",
+                  c.mhz ? `${c.mhz}MHz` : (c.cores ? `${c.cores}コア` : ""),
+                  c.percent));
+
+  tiles.push(tile("メモリ", m.used ?? "―", m.used != null ? "GB" : "",
+                  m.total ? `/ ${m.total}GB` : "", m.percent));
+
+  tiles.push(tile("ディスク", k.free ?? "―", k.free != null ? "GB空" : "",
+                  k.total ? `${k.percent}% 使用` : "", k.percent, 80, 92));
+
+  // 温度・電力・電池は読めた場合だけ出す（機種によっては存在しない）
+  if (t.cpu != null) {
+    tiles.push(tile("温度", t.cpu, "℃", t.source ? String(t.source).split(":")[0] : "",
+                    Math.min(100, (t.cpu / 95) * 100), 70, 85));
+  }
+  if (p.watt != null) {
+    tiles.push(tile("消費電力", p.watt, "W", p.source || ""));
+  }
+  if (p.battery != null) {
+    const st = p.status === "Charging" ? "⚡充電中"
+             : p.status === "Full" ? "満充電"
+             : (p.time_left ? `残り${p.time_left}` : (p.status || ""));
+    tiles.push(tile("電池", p.battery, "%", st, p.battery, 101, 102));
+  }
+
+  body.innerHTML = tiles.join("");
+  $("#sysUptime").textContent = d.uptime ? `稼働 ${d.uptime}` : "";
+}
+
+async function loadSys() {
+  if (paused) return;
+  try {
+    const res = await fetch("/api/sys", { cache: "no-store" });
+    renderSys(await res.json());
+  } catch { /* サーバーが落ちていても画面は保つ */ }
+}
+
+/* ── ニュースの自動スクロール ───────────────
+   常時表示なので、放っておいても続きが読めるように少しずつ送る。
+   自分で触っている間は止まる。 */
+let lastTouch = 0;
+function noteInteraction() { lastTouch = Date.now(); }
+
+function autoScrollStep() {
+  if (paused || !AUTO_SCROLL) return;
+  if (Date.now() - lastTouch < 20_000) return;   // 操作後20秒は触らない
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  document.querySelectorAll(".panel-body").forEach((body) => {
+    const room = body.scrollHeight - body.clientHeight;
+    if (room < 12) return;                        // スクロールの余地なし
+
+    if (body.scrollTop >= room - 4) {
+      body.scrollTo({ top: 0, behavior: "smooth" });   // 一周したら頭へ
+      return;
+    }
+    // 記事1件分ずつ送ると読みやすい
+    const item = body.querySelector(".feed:not(.hidden) li");
+    const step = item ? Math.max(40, item.getBoundingClientRect().height) : 60;
+    body.scrollBy({ top: step, behavior: "smooth" });
+  });
 }
 
 /* ── 天気 ───────────────────────────────── */
@@ -283,11 +424,15 @@ function render(d) {
     : (d.config?.vault_on === false ? "📓 記録OFF" : `📓 ${v.written ?? 0}件を記録`);
   $("#vaultState").title = v.error || v.daily || "";
 
+  if (d.config?.auto_scroll === false) AUTO_SCROLL = false;
+  if (d.config?.sysmon_sec) SYS_MS = d.config.sysmon_sec * 1000;
+
   // 非力なPC向け: アニメーションを止め、更新間隔を延ばす
   if (d.config?.light_mode) {
     document.body.classList.add("light");
     POLL_MS = 180_000;      // 3分
     ROTATE_MS = 12_000;
+    SYS_MS = Math.max(SYS_MS, 8_000);
   }
 
   const errs = d.errors || [];
@@ -374,11 +519,18 @@ function init() {
     if (!paused) load(false);      // 復帰したら最新に追いつく
   });
 
+  // 操作中は自動スクロールを止めるため、触ったことを覚えておく
+  ["wheel", "touchstart", "mousedown", "keydown"].forEach((ev) =>
+    document.addEventListener(ev, noteInteraction, { passive: true }));
+
+  // 画面幅が変わったら見出しの流し方を測り直す
+  window.addEventListener("resize", () => requestAnimationFrame(fitHeadline));
+
   load();
+  loadSys();
   schedulePoll();
-  setInterval(() => {
-    if (!paused && alertItems.length > 1) showAlert(++alertIdx % alertItems.length);
-  }, ROTATE_MS);
+  setInterval(loadSys, SYS_MS);
+  setInterval(autoScrollStep, 8_000);
 }
 
 function schedulePoll() {

@@ -49,6 +49,11 @@ body {
   align-items: center;
   gap: 14px;
   padding: 10px 14px;
+  /* グリッド項目の min-width は既定が auto。nowrapな子に押し広げられて
+     画面外へはみ出すので、0にして必ず縮むようにする。 */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   border-radius: var(--radius);
   background: linear-gradient(90deg, var(--alert) 0%, #a3161f 100%);
   box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 6px 18px rgba(214,31,43,.28);
@@ -72,20 +77,45 @@ body.light .alertbar { animation: none; }
 }
 
 .alert-badge {
+  flex: 0 0 auto;
   display: flex; align-items: center; gap: 7px;
   font-weight: 700; font-size: 13px; letter-spacing: .04em;
   padding: 5px 11px; border-radius: 999px;
   background: rgba(0,0,0,.28); white-space: nowrap;
 }
-.alert-body { flex: 1; min-width: 0; }
+.alert-body { flex: 1 1 0; min-width: 0; overflow: hidden; }
 .alert-headline {
-  display: block; color: #fff; font-size: 17px; font-weight: 700;
-  text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: block; color: #fff; font-size: 19px; font-weight: 700;
+  text-decoration: none; overflow: hidden; white-space: nowrap;
+  min-width: 0; max-width: 100%;
 }
+.alert-headline > span { display: inline-block; will-change: transform; }
+
+/* 収まらないときだけ、ゆっくり横に流す。
+   両端で少し止まるので読み取りやすい。 */
+.alert-headline.scroll > span {
+  animation: marquee var(--dur, 12s) linear infinite;
+}
+@keyframes marquee {
+  0%,   12%  { transform: translateX(0); }
+  88%,  100% { transform: translateX(var(--shift, 0)); }
+}
+/* 省電力・低スペック時は流さず「…」で省略（再描画を減らす） */
+body.light .alert-headline.scroll > span { animation: none; }
+body.light .alert-headline { text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) {
+  .alert-headline.scroll > span { animation: none; }
+  .alert-headline { text-overflow: ellipsis; }
+}
+
 .alert-headline:hover { text-decoration: underline; }
-.alert-meta { font-size: 11.5px; color: rgba(255,255,255,.75); margin-top: 1px; }
+.alert-meta {
+  font-size: 11.5px; color: rgba(255,255,255,.75); margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 .quake-chip {
+  flex: 0 0 auto;
   display: flex; align-items: center; gap: 8px;
   padding: 6px 12px; border-radius: 8px;
   background: rgba(0,0,0,.32); font-size: 13px; white-space: nowrap;
@@ -94,6 +124,7 @@ body.light .alertbar { animation: none; }
   font-size: 19px; font-weight: 800; color: #ffd34d; line-height: 1;
 }
 .alert-toggle {
+  flex: 0 0 auto;
   background: rgba(0,0,0,.3); color: #fff; border: 0; cursor: pointer;
   padding: 7px 12px; border-radius: 8px; font-size: 13px; font-weight: 700;
 }
@@ -123,13 +154,21 @@ body.light .alertbar { animation: none; }
   background: var(--bg-panel); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 9px 14px;
 }
-.clock { display: flex; flex-direction: column; justify-content: center; }
-.date { font-size: 14px; color: var(--muted); }
-.time {
-  font-size: 30px; font-weight: 700; line-height: 1.05;
-  font-variant-numeric: tabular-nums; letter-spacing: .01em;
+.clock {
+  display: flex; flex-direction: column; justify-content: center;
+  min-width: 0;
 }
-.wday { font-size: 12px; color: var(--accent); }
+.date { font-size: 15px; color: var(--muted); }
+.time-row { display: flex; align-items: baseline; gap: 4px; }
+.time {
+  font-size: 54px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+.sec {
+  font-size: 22px; font-weight: 700; color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.wday { font-size: 13px; color: var(--accent); }
 
 .weather { display: flex; align-items: center; gap: 18px; overflow: hidden; }
 .wx-now { display: flex; align-items: center; gap: 10px; }
@@ -262,6 +301,47 @@ body.light .alertbar { animation: none; }
 .fx-pair { font-size: 10.5px; color: var(--muted); }
 .fx-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
+/* 見出しとタブを1行に収める（折り返すと記事1件分の高さを損する） */
+.panel-head h2.tight { font-size: 12.5px; }
+@media (max-height: 800px) {
+  .panel-head { padding: 5px 10px; }
+  .panel.fx .panel-body.row { padding: 6px 10px; }
+  .panel-body.sysgrid { padding: 6px 10px; }
+}
+
+/* ── システムモニター ───────────────────── */
+.panel.sys { flex: 0 0 auto; }
+.panel-body.sysgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 6px; padding: 8px 12px; overflow: visible;
+}
+.sys-tile {
+  background: var(--bg-head); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 8px; min-width: 0;
+}
+.sys-label {
+  font-size: 10px; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.sys-value {
+  font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sys-value .u { font-size: 10px; color: var(--muted); margin-left: 1px; font-weight: 400; }
+.sys-sub { font-size: 9.5px; color: var(--muted); white-space: nowrap;
+           overflow: hidden; text-overflow: ellipsis; }
+.sys-bar {
+  height: 3px; border-radius: 2px; background: rgba(255,255,255,.09);
+  margin-top: 3px; overflow: hidden;
+}
+.sys-bar > i {
+  display: block; height: 100%; border-radius: 2px;
+  background: var(--accent); transition: width .5s ease;
+}
+.sys-bar.warn > i { background: var(--warn); }
+.sys-bar.hot  > i { background: var(--alert-lit); }
+
 /* ── 足元 ───────────────────────────────── */
 .footer {
   display: flex; justify-content: space-between; gap: 10px;
@@ -287,7 +367,8 @@ body.light .alertbar { animation: none; }
    高さに応じて段階的に詰めて、1画面を死守する。 */
 @media (max-height: 900px) {
   :root { --gap: 8px; }
-  .time { font-size: 26px; }
+  .time { font-size: 46px; }
+  .sec { font-size: 19px; }
   .alertbar { min-height: 52px; padding: 8px 12px; }
   .clock, .weather, .status { padding: 7px 12px; }
   .wx-icon { font-size: 30px; }
@@ -295,7 +376,8 @@ body.light .alertbar { animation: none; }
 }
 @media (max-height: 800px) {
   :root { --gap: 7px; }
-  .time { font-size: 23px; }
+  .time { font-size: 44px; }
+  .sec { font-size: 18px; }
   .date { font-size: 13px; }
   .wx-today { display: none; }       /* 今日の予報文は天気ラベルと重複気味 */
   .panel-head { padding: 6px 10px; }
@@ -303,6 +385,9 @@ body.light .alertbar { animation: none; }
   .alert-meta { font-size: 11px; }
 }
 @media (max-height: 700px) {
+  .time { font-size: 40px; }
+  .sec { font-size: 17px; }
+  .sys-value { font-size: 14px; }
   .wx-week { display: none; }        /* 週間予報より記事の行数を優先 */
   .wx-sub { font-size: 11px; }
   .footer { display: none; }

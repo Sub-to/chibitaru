@@ -39,7 +39,9 @@
 
   "ui": {
     "scale": "auto",
-    "pause_when_hidden": true
+    "pause_when_hidden": true,
+    "auto_scroll": true,
+    "sysmon_sec": 3
   },
 
   "obsidian": {

@@ -13,7 +13,7 @@
 <header id="alertbar" class="alertbar calm">
   <div class="alert-badge"><span id="alertIcon">🛡</span><span id="alertLabel">アラート</span></div>
   <div class="alert-body">
-    <a id="alertHeadline" class="alert-headline" href="#" target="_blank" rel="noopener">情報を取得しています…</a>
+    <a id="alertHeadline" class="alert-headline" href="#" target="_blank" rel="noopener"><span id="alertText">情報を取得しています…</span></a>
     <div id="alertMeta" class="alert-meta"></div>
   </div>
   <div id="quakeChip" class="quake-chip" hidden></div>
@@ -36,7 +36,9 @@
 <section class="topbar">
   <div class="clock">
     <div id="date" class="date">――</div>
-    <div id="time" class="time">--:--:--</div>
+    <div class="time-row">
+      <span id="time" class="time">--:--</span><span id="sec" class="sec">--</span>
+    </div>
     <div id="wday" class="wday"></div>
   </div>
 
@@ -74,7 +76,7 @@
   <section class="col col-left">
     <div class="panel grow">
       <div class="panel-head">
-        <h2>💡 テック・AI・ガジェット</h2>
+        <h2 class="tight">💡 テック</h2>
         <div class="tabs" data-group="left">
           <button class="tab active" data-tab="ai">🤖 AI</button>
           <button class="tab" data-tab="tech">💡 テック</button>
@@ -96,6 +98,14 @@
         <span id="fxUpdated" class="muted small">―</span>
       </div>
       <div class="panel-body row" id="fxBody"></div>
+    </div>
+
+    <div class="panel sys">
+      <div class="panel-head compact">
+        <h2>💻 このPC</h2>
+        <span id="sysUptime" class="muted small">―</span>
+      </div>
+      <div class="panel-body sysgrid" id="sysBody"></div>
     </div>
   </section>
 
