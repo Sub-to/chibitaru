@@ -1,6 +1,8 @@
 {
   "_説明": "このファイルを config.json にコピーすると設定を上書きできます（全部書く必要はなく、変えたい項目だけでOK）",
 
+  "vault": "~/ObsidianVault",
+
   "port": 8787,
   "open_browser": true,
 

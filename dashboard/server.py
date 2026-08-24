@@ -271,6 +271,56 @@ def run_check() -> int:
 
 
 # ─────────────────────────────────────────────
+#  Vault の用意（--init-vault）
+# ─────────────────────────────────────────────
+
+def run_init_vault() -> int:
+    """記録先のフォルダを作る。既にあれば何も壊さない。"""
+    vault = Path(CONFIG["vault"])
+    folder = CONFIG["obsidian"]["folder"]
+
+    print("=" * 56)
+    print("📓 Obsidian Vault の用意")
+    print("=" * 56)
+    print(f"  場所: {vault}")
+
+    existed = vault.exists()
+    if existed:
+        print("  ✅ すでにあります（中身はそのままです）")
+    else:
+        print("  ➕ 新しく作ります")
+
+    for sub in ("Daily", "Sources", "Topics"):
+        (vault / folder / sub).mkdir(parents=True, exist_ok=True)
+
+    readme = vault / folder / "README.md"
+    if not readme.exists():
+        readme.write_text(
+            "---\ntype: dashboard-index\ntags: [dashboard]\n---\n"
+            "# 🖥 ちびたるダッシュボードの記録\n\n"
+            "- `Daily/` … その日のニュース（日付・見出し・ソース元・リンク）\n"
+            "- `Sources/` … ソース元ごとのノート\n"
+            "- `Topics/` … テーマごとのノート\n\n"
+            "グラフビューを開くと、日付 ⇄ 媒体 ⇄ テーマ のつながりを辿れます。\n",
+            encoding="utf-8",
+        )
+
+    print(f"  📁 {vault / folder}/(Daily, Sources, Topics) を用意しました")
+    print()
+    if not existed:
+        print("  ▶ Obsidian で使うには:")
+        print("     Obsidian を開く → 「フォルダーを Vault として開く」")
+        print(f"     → {vault} を選ぶ")
+        print()
+    print("  ▶ この場所を覚えさせるには、次のどちらか:")
+    print(f'     ・dashboard/config.json に  "vault": "{vault}"')
+    print(f'     ・または  export CHIBITARU_VAULT="{vault}"  を ~/.bashrc に追記')
+    print("     （自動起動でも確実に効くのは config.json のほうです）")
+    print("=" * 56)
+    return 0
+
+
+# ─────────────────────────────────────────────
 #  起動
 # ─────────────────────────────────────────────
 
@@ -280,12 +330,17 @@ def main():
     ap.add_argument("--host", default=CONFIG["host"])
     ap.add_argument("--check", action="store_true", help="情報源が生きているか確認する")
     ap.add_argument("--once",  action="store_true", help="1回だけ取得してVaultに記録して終了")
+    ap.add_argument("--init-vault", action="store_true",
+                    help="記録先のフォルダを作る（既にあれば壊さない）")
     ap.add_argument("--no-browser", action="store_true", help="ブラウザを自動で開かない")
     ap.add_argument("--no-vault",   action="store_true", help="Vaultに書かない")
     args = ap.parse_args()
 
     if args.no_vault:
         CONFIG["obsidian"]["enabled"] = False
+
+    if args.init_vault:
+        return run_init_vault()
 
     if args.check:
         return run_check()

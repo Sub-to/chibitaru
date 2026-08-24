@@ -77,6 +77,11 @@ DEFAULTS = {
         "min_shindo":  4,     # 震度4以上だけ通知（画面には3以上を出す）
     },
 
+    # ── Obsidian Vault の場所 ────────────────
+    # null なら 環境変数 CHIBITARU_VAULT → ~/ObsidianVault の順に探す。
+    # "~/Documents/MyVault" のように書ける（自動起動でも確実に効く）。
+    "vault": None,
+
     # ── Obsidian 記録 ────────────────────────
     "obsidian": {
         "enabled":   True,
@@ -139,9 +144,20 @@ def _deep_merge(base: dict, over: dict) -> dict:
     return out
 
 
-def vault_path() -> Path:
-    """Obsidian Vault の場所（他のちびたるツールと同じ環境変数を使う）。"""
-    return Path(os.environ.get("CHIBITARU_VAULT", str(Path.home() / "ObsidianVault")))
+def vault_path(cfg: dict | None = None) -> Path:
+    """
+    Obsidian Vault の場所。優先順位は
+      環境変数 CHIBITARU_VAULT > config.json の "vault" > 既定の ~/ObsidianVault
+
+    config.json でも指定できるようにしてあるのは、自動起動（.desktop）から
+    立ち上げると ~/.bashrc が読まれず、環境変数が効かないため。
+    """
+    env = os.environ.get("CHIBITARU_VAULT")
+    if env:
+        return Path(env).expanduser()
+    if cfg and cfg.get("vault"):
+        return Path(str(cfg["vault"])).expanduser()
+    return Path.home() / "ObsidianVault"
 
 
 def load() -> dict:
@@ -180,7 +196,7 @@ def load() -> dict:
 
     cfg["light_mode"] = light
     cfg["sysinfo"]    = info
-    cfg["vault"]      = str(vault_path())
+    cfg["vault"]      = str(vault_path(cfg))
     cfg["cache_dir"]  = str(CACHE_DIR)
     return cfg
 

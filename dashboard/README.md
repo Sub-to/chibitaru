@@ -188,17 +188,42 @@ CHIBITARU_DASH_PERF=light bash dashboard/start_dashboard.sh
 
 ### Vaultの場所を教える
 
-他のちびたるツールと同じ環境変数を使います。
+**すでにObsidianを使っている場合**は、新しく作らずその場所を指定します。
+どこにあるか分からなければ、`.obsidian` フォルダを探すと見つかります。
 
 ```bash
-# macOS / Linux
-export CHIBITARU_VAULT="/path/to/YourVault"
-
-# Windows（PowerShell、一度だけでOK）
-setx CHIBITARU_VAULT "C:\Users\you\Documents\YourVault"
+find ~ -maxdepth 4 -name ".obsidian" -type d 2>/dev/null
 ```
 
-未設定なら `~/ObsidianVault` を見に行きます。
+**まだ無い場合**は、フォルダごと用意できます（既にあれば中身は触りません）。
+
+```bash
+python3 dashboard/server.py --init-vault
+```
+
+場所の指定は次の順に見ます。
+
+| 優先 | 方法 | 自動起動でも効くか |
+|---|---|---|
+| 1 | 環境変数 `CHIBITARU_VAULT` | ❌ 効かないことがある |
+| 2 | `config.json` の `"vault"` | ✅ 確実 |
+| 3 | 既定 `~/ObsidianVault` | ✅ |
+
+```jsonc
+// dashboard/config.json
+{ "vault": "~/Documents/MyVault" }
+```
+
+> ⚠️ 自動起動（`.desktop`）から立ち上げると `~/.bashrc` が読まれないため、
+> 環境変数だけだとVaultを見失います。**常時表示で使うなら `config.json` に書いてください。**
+
+環境変数で一時的に指定するなら:
+
+```bash
+export CHIBITARU_VAULT="$HOME/Documents/MyVault"     # Linux / macOS
+setx CHIBITARU_VAULT "C:\Users\you\MyVault"        # Windows(PowerShell)
+```
+
 記録したくないときは `--no-vault` を付けてください。
 
 ---
