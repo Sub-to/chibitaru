@@ -9,6 +9,7 @@
 import os
 import sys
 import json
+import shutil
 import datetime
 import subprocess
 import platform
@@ -30,11 +31,17 @@ def notify_user(title: str, message: str, urgent: bool = False):
                 f'display notification "{message}" with title "{title}" sound name "{sound}"'
             ], check=False)
         elif _OS == "Linux":
+            # 軽量ディストロには notify-send が無いこともあるので順に試す。
+            # どれも無ければ下のコンソール出力だけになる（例外にはしない）。
             urgency = "critical" if urgent else "normal"
-            subprocess.run(
+            for cmd in (
                 ["notify-send", "-u", urgency, title, message],
-                check=False, timeout=5
-            )
+                ["kdialog", "--passivepopup", f"{title}: {message}", "10"],
+                ["zenity", "--notification", "--text", f"{title}: {message}"],
+            ):
+                if shutil.which(cmd[0]):
+                    subprocess.run(cmd, check=False, timeout=5)
+                    break
         elif _OS == "Windows":
             # PowerShell トースト通知
             ps_cmd = (
@@ -55,6 +62,21 @@ def notify_user(title: str, message: str, urgent: bool = False):
     print(f"  [{prefix}] {title}: {message}")
 
 
+def _default_interface() -> str:
+    """デフォルトルートが使っているネットワークIF名を返す（Linux）。"""
+    try:
+        r = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True, text=True, timeout=5
+        )
+        parts = r.stdout.split()
+        if "dev" in parts:
+            return parts[parts.index("dev") + 1]
+    except Exception:
+        pass
+    return ""
+
+
 def disconnect_network():
     """ネットワークを切断する（緊急時・OS対応）。"""
     try:
@@ -65,11 +87,23 @@ def disconnect_network():
             )
             return result.returncode == 0
         elif _OS == "Linux":
-            # nmcli or ip
-            for cmd in [["nmcli", "radio", "wifi", "off"], ["ip", "link", "set", "wlan0", "down"]]:
-                r = subprocess.run(cmd, capture_output=True, timeout=5)
-                if r.returncode == 0:
-                    return True
+            cmds = []
+            if shutil.which("nmcli"):
+                cmds.append(["nmcli", "networking", "off"])
+            if shutil.which("ip"):
+                # wlan0 決め打ちだと有線や wlp2s0 等で外すので実際の IF を調べる
+                iface = _default_interface()
+                if iface:
+                    cmds.append(["ip", "link", "set", iface, "down"])
+            if shutil.which("rfkill"):
+                cmds.append(["rfkill", "block", "all"])
+            for cmd in cmds:
+                try:
+                    r = subprocess.run(cmd, capture_output=True, timeout=5)
+                    if r.returncode == 0:
+                        return True
+                except Exception:
+                    continue
             return False
         elif _OS == "Windows":
             r = subprocess.run(
@@ -81,24 +115,42 @@ def disconnect_network():
         return False
 
 
-def make_vault_readonly():
-    """VaultフォルダをRead-Onlyに変更（緊急保護）。"""
+def _chmod_tree(dir_mode: int, file_mode: int) -> bool:
+    """
+    Vault 配下をディレクトリ／ファイル別のパーミッションに変更する。
+
+    chmod -R 444 のように一律指定するとディレクトリの実行ビット(x)が消え、
+    中を辿れなくなって復元すらできなくなる。必ず別々に設定すること。
+    """
+    if not VAULT_PATH.exists():
+        return False
     try:
-        subprocess.run(["chmod", "-R", "444", str(VAULT_PATH)],
-                       capture_output=True, timeout=10)
+        os.chmod(VAULT_PATH, dir_mode)
+        for root, dirs, files in os.walk(VAULT_PATH):
+            for d in dirs:
+                try:
+                    os.chmod(os.path.join(root, d), dir_mode)
+                except OSError:
+                    continue
+            for f in files:
+                try:
+                    os.chmod(os.path.join(root, f), file_mode)
+                except OSError:
+                    continue
         return True
     except Exception:
         return False
+
+
+def make_vault_readonly():
+    """VaultフォルダをRead-Onlyに変更（緊急保護）。"""
+    # ディレクトリは r-xr-xr-x（辿れる）、ファイルは r--r--r--（書けない）
+    return _chmod_tree(0o555, 0o444)
 
 
 def restore_vault_writable():
     """Vault書き込み権限を復元。"""
-    try:
-        subprocess.run(["chmod", "-R", "644", str(VAULT_PATH)],
-                       capture_output=True, timeout=10)
-        return True
-    except Exception:
-        return False
+    return _chmod_tree(0o755, 0o644)
 
 
 def log_to_vault(result: dict):

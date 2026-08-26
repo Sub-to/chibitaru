@@ -10,6 +10,7 @@ Inspired by the **Nagashino battle's rotating volley tactic** (1575), it deploys
 ## ✨ Features
 
 - 🔵 **Aoko (Blue Triple Star)** — 3 local AI agents (Qwen2.5-1.5B) watching in parallel
+- ⚡ **Lightweight mode** — MYLN-FRAME judging in <1ms with no model, no GPU, no LLM
 - 🦠 **ClamAV** — Virus scanning with offline DB (3.6M+ signatures)
 - 👁️ **Kuramaru** — Obsidian vault quality guardian
 - 👹 **Onimaru** — File integrity monitor
@@ -24,6 +25,13 @@ Inspired by the **Nagashino battle's rotating volley tactic** (1575), it deploys
 bash /path/to/chibitaru/start.sh
 ```
 
+### ⚡ Lightweight Linux (no model download, no GPU)
+```bash
+bash /path/to/chibitaru/start-lite.sh
+```
+Needs only `python3` — no 940MB model, no llama-server, ~20MB RAM.
+See [docs/LIGHTWEIGHT-LINUX.md](docs/LIGHTWEIGHT-LINUX.md).
+
 ### Windows 11
 ```
 Double-click start.bat
@@ -35,12 +43,16 @@ Double-click start.bat
 
 ```
 USB Drive
-├── aoko/               ← AI security agents
-│   ├── conductor.py    ← Majority-vote orchestrator
-│   ├── monitor.py      ← OS event collector
-│   ├── response.py     ← Action executor
-│   ├── launch.sh       ← macOS/Linux launcher
-│   └── launch_win.bat  ← Windows launcher
+├── aoko/                    ← AI security agents
+│   ├── conductor.py         ← Majority-vote orchestrator (LLM)
+│   ├── myln_conductor.py    ← MYLN-FRAME orchestrator (no LLM)
+│   ├── myln.py              ← ctypes bridge to libmyln
+│   ├── myln_py.py           ← Pure-Python core (zero dependencies)
+│   ├── feature_extractor.py ← Event → 5-dim feature vector
+│   ├── monitor.py           ← OS event collector
+│   ├── response.py          ← Action executor
+│   ├── launch.sh            ← macOS/Linux launcher
+│   └── launch_win.bat       ← Windows launcher
 │
 ├── bin/
 │   ├── llama-server        ← macOS ARM binary
@@ -49,8 +61,42 @@ USB Drive
 │
 ├── scan/clamdb/        ← Place CVD files here
 ├── install/            ← Agent installers
+├── tests/              ← Dependency-free test suite
+├── docs/               ← Lightweight Linux guide
 ├── start.sh            ← macOS/Linux menu
+├── start-lite.sh       ← ⚡ Lightweight mode (no LLM)
 └── start.bat           ← Windows menu
+```
+
+---
+
+## ⚡ Two Engines, One Interface
+
+Both engines return the exact same verdict format, so everything downstream
+(`response.py`, logging, notifications) behaves identically.
+
+| | 🔵 Blue Triple Star (LLM) | ⚡ Lightweight (MYLN-FRAME) |
+|---|---|---|
+| Engine | Qwen2.5-1.5B × 3 | MYLN-FRAME |
+| Model file | ~940MB required | **none** |
+| llama-server | required | **not used** |
+| Python packages | none | **none (stdlib only)** |
+| RAM | ~1.5–2GB | **~20MB** |
+| Latency per event | seconds | **<1ms** |
+| Startup | 20s server warmup | **instant** |
+
+Pick one with `CHIBITARU_ENGINE`:
+
+```bash
+CHIBITARU_ENGINE=auto   bash start-lite.sh      # default: native lib → pure Python
+CHIBITARU_ENGINE=python bash start-lite.sh      # force pure-Python core
+CHIBITARU_ENGINE=llm    python3 aoko/monitor.py # force Qwen2.5 × 3
+```
+
+One-shot scan for cron on low-power boxes:
+
+```bash
+bash start-lite.sh --once
 ```
 
 ---
@@ -90,10 +136,14 @@ Files needed: `main.cvd`, `daily.cvd`, `bytecode.cvd`
 ### 3. llama-server (pre-built binaries included in `bin/`)
 Or install via: `brew install llama.cpp` (macOS) / apt / releases page
 
+> Steps 1–3 are only needed for the LLM version.
+> **Lightweight mode skips all of them** — `bash start-lite.sh` works on a fresh clone.
+
 ### 4. Launch
 ```bash
-bash start.sh     # macOS / Linux
-start.bat         # Windows
+bash start.sh         # macOS / Linux menu
+bash start-lite.sh    # ⚡ Lightweight (no model needed)
+start.bat             # Windows
 ```
 
 ---
@@ -103,8 +153,13 @@ start.bat         # Windows
 | OS | llama-server | Notification | Network cut |
 |----|-------------|-------------|------------|
 | macOS (ARM/Intel) ✅ | `bin/llama-server` | osascript | networksetup |
-| Linux x64 (CachyOS/Arch) ✅ | `bin/linux-x64/` | notify-send | nmcli |
+| Linux x64 (CachyOS/Arch) ✅ | `bin/linux-x64/` | notify-send → kdialog → zenity | nmcli / ip / rfkill |
+| Linux ⚡ lightweight ✅ | **not needed** | falls back to console | optional |
 | Windows 11 x64 ✅ (tested 2026-05-14) | `bin/win-x64/` | PowerShell Toast | netsh |
+
+On lightweight Linux only `python3` is required. `notify-send`, `nmcli`,
+`netstat` and `clamscan` are all optional — missing ones degrade gracefully
+instead of crashing.
 
 ---
 
@@ -115,9 +170,20 @@ start.bat         # Windows
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | Local LLM inference | MIT |
 | [Qwen2.5-1.5B](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF) | AI model | Apache 2.0 |
 | [ClamAV](https://www.clamav.net/) | Virus scanning | GPL v2 |
-| Python 3.x | Glue code | PSF |
+| MYLN-FRAME | Sub-ms local inference (no LLM) | — |
+| Python 3.x | Glue code + pure-Python inference core | PSF |
 
 **Zero cloud. Zero subscription. Zero data sent externally.**
+
+---
+
+## 🧪 Tests
+
+No dependencies, no model, no network:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ---
 
@@ -125,6 +191,8 @@ start.bat         # Windows
 
 - **Human always makes the final call** on CRITICAL events
 - All AI inference runs 100% locally — no external connections ever
+- The pure-Python core is a compatible reimplementation of the C one: threat
+  levels match, raw probabilities are not bit-identical
 
 ---
 

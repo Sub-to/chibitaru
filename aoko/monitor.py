@@ -15,7 +15,20 @@ import platform
 import subprocess
 import datetime
 from pathlib import Path
-from conductor import judge
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# ── 判定エンジンの選択 ────────────────────────────────────────────────────────
+# CHIBITARU_ENGINE=llm    → Qwen2.5×3（llama-server + 940MBモデルが必要）
+# それ以外（既定 auto）    → MYLN-FRAME（native or 純Python・軽量モード）
+_ENGINE = os.environ.get("CHIBITARU_ENGINE", "auto").strip().lower()
+if _ENGINE == "llm":
+    from conductor import judge
+    _ENGINE_NAME = "llm"
+else:
+    from myln_conductor import judge, backend
+    _ENGINE_NAME = backend()
+
 from response import execute
 
 _OS = platform.system()  # "Darwin" / "Linux" / "Windows"
@@ -198,11 +211,23 @@ def check_ai_injection() -> list[dict]:
     return events
 
 
-def run_monitor():
-    """メイン監視ループ。"""
+def scan_once() -> list[dict]:
+    """1回分のスキャンを実行してイベント一覧を返す。"""
+    all_events = []
+    all_events += check_suspicious_processes(get_processes())
+    all_events += check_suspicious_network(get_network_connections())
+    all_events += check_vault_changes()
+    all_events += check_ai_injection()
+    return all_events
+
+
+def run_monitor(once: bool = False):
+    """メイン監視ループ。once=True なら1回スキャンして終了する。"""
     print("\n🔵🔵🔵 青っ子 監視開始 🔵🔵🔵")
+    print(f"  判定エンジン: {_ENGINE_NAME}")
+    print(f"  Vault: {VAULT_PATH}")
     print(f"  スキャン間隔: {SCAN_INTERVAL}秒")
-    print("  Ctrl+C で停止\n")
+    print("  Ctrl+C で停止\n" if not once else "  単発スキャンモード\n")
 
     scan_count = 0
     while True:
@@ -210,15 +235,7 @@ def run_monitor():
         ts = datetime.datetime.now().strftime("%H:%M:%S")
         print(f"  [{ts}] スキャン #{scan_count}...", end=" ", flush=True)
 
-        all_events = []
-
-        # 各チェック実行
-        procs = get_processes()
-        conns = get_network_connections()
-        all_events += check_suspicious_processes(procs)
-        all_events += check_suspicious_network(conns)
-        all_events += check_vault_changes()
-        all_events += check_ai_injection()
+        all_events = scan_once()
 
         if not all_events:
             print("✅ 異常なし")
@@ -231,8 +248,13 @@ def run_monitor():
                 if result["level"] == "SAFE":
                     continue
 
+        if once:
+            return
         time.sleep(SCAN_INTERVAL)
 
 
 if __name__ == "__main__":
-    run_monitor()
+    try:
+        run_monitor(once="--once" in sys.argv)
+    except KeyboardInterrupt:
+        print("\n\n  🔵 監視を停止しました")
