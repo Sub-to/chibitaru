@@ -848,11 +848,32 @@ EOF
 <!-- install/setup.sh が生成 -->
 <labwc_config>
   <theme><cornerRadius>0</cornerRadius></theme>
-  <!-- 端末は装飾なしで全画面。この OS に窓を並べる用途がない -->
+
+  <keyboard>
+    <!-- labwc の既定（Alt-Tab など）も残す。keybind を一つでも書くと
+         既定が読み込まれなくなるため、明示して足す -->
+    <default />
+    <!-- Super+Enter でもう一枚コンソールを出す。
+         既定では W-Return は alacritty を呼ぶことになっているが、
+         この OS には入っていないので何も起きなかった。
+         別の app-id で起こして、こちらだけ枠を付ける（下の規則）。 -->
+    <keybind key="W-Return">
+      <action name="Execute" command="foot --app-id=chibitaru-console --title=コンソール"/>
+    </keybind>
+  </keyboard>
+
   <windowRules>
+    <!-- 本体の画面。装飾なしで全画面。ここに枠を出すと 20 行しかない
+         縦がさらに削れる -->
     <windowRule identifier="foot">
       <action name="ToggleMaximize"/>
       <serverDecoration>no</serverDecoration>
+    </windowRule>
+    <!-- あとから出すコンソール。こちらは枠を付ける。
+         全画面の端末の上に、閉じ方の分からない窓が重なるのが一番困る。
+         右上のバツで閉じられるようにしておく。 -->
+    <windowRule identifier="chibitaru-console">
+      <serverDecoration>yes</serverDecoration>
     </windowRule>
   </windowRules>
 </labwc_config>
