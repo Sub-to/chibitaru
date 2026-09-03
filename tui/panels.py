@@ -180,13 +180,16 @@ def mpc(*args: str) -> str:
 # ══════════════════════════════════════════════════════════
 class NewsTicker(Static):
     """
-    右から左へ流れるお知らせ。
+    右から左へ流れるお知らせ。地震・注意報・天気・紛争。
 
-    中身は /etc/chibitaru/news が持つ。情報源をあとで差し替えられる
-    ように、ここは「ファイルを読んで流す」だけにしてある。
+    集めるのは chibitaru-news の仕事で、ここは読んで流すだけ。
+    取りに行くのを画面の中でやると、電波が悪い時に画面ごと固まる。
+    別の腕にやらせて、こちらはファイルだけ見る。
     """
 
-    SOURCE = Path("/etc/chibitaru/news")
+    # 個人のものが先。機械ぜんたいの既定は置き場所として残す。
+    SOURCES = ("~/.cache/chibitaru/news", "/etc/chibitaru/news")
+    FETCH_SECONDS = 600      # 取りに行く間隔。気象庁に何度も訊かない
 
     def on_mount(self) -> None:
         self._offset = 0
@@ -194,13 +197,33 @@ class NewsTicker(Static):
         self.load()
         self.set_interval(0.4, self.scroll_step)   # 流れ
         self.set_interval(60.0, self.load)         # 読み直し
+        # すぐには取りに行かない。画面を出すのが先。
+        self.set_timer(3.0, self.fetch)
+        self.set_interval(self.FETCH_SECONDS, self.fetch)
+
+    def fetch(self) -> None:
+        self.app.run_worker(self._fetch_once, thread=True, group="news")
+
+    def _fetch_once(self) -> None:
+        # 失敗しても何も言わない。電波が無いのは普通のことで、
+        # そのたびに画面に出しても、できることは何もない。
+        # 前に取れたものがそのまま流れ続ける。
+        try:
+            subprocess.run(["chibitaru-news"], capture_output=True, timeout=90)
+        except (FileNotFoundError, subprocess.SubprocessError):
+            return
+        self.app.call_from_thread(self.load)
 
     def load(self) -> None:
-        try:
-            lines = [l.strip() for l in self.SOURCE.read_text().splitlines()
-                     if l.strip() and not l.startswith("#")]
-        except OSError:
-            lines = []
+        lines = []
+        for s in self.SOURCES:
+            try:
+                lines = [l.strip() for l in Path(s).expanduser().read_text().splitlines()
+                         if l.strip() and not l.startswith("#")]
+            except OSError:
+                continue
+            if lines:
+                break
         self._text = "　　◆　　".join(lines) if lines else ""
 
     def scroll_step(self) -> None:
@@ -211,8 +234,18 @@ class NewsTicker(Static):
         pad = "　" * 8
         loop = self._text + pad
         self._offset = (self._offset + 1) % len(loop)
-        shown = (loop + loop)[self._offset:self._offset + 60]
-        self.update(f" {shown}")
+
+        # 字数ではなく桁数で切る。日本語と英数字が混ざるので、
+        # 決め打ちの字数だと英語の見出しの時に右が余る。
+        width = max(20, self.size.width - 2)
+        shown, used = [], 0
+        for ch in (loop + loop)[self._offset:]:
+            cw = dw(ch)
+            if used + cw > width:
+                break
+            shown.append(ch)
+            used += cw
+        self.update(" " + "".join(shown))
 
 
 # ══════════════════════════════════════════════════════════

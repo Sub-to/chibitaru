@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+"""
+お知らせを集める。画面の一番上を流れるあれ。
+
+  chibitaru-news                取ってきて書き出す
+  chibitaru-news --show         いま出ている中身
+  chibitaru-news --地域 熊本県   どこの天気を見るか決める
+  chibitaru-news --地域一覧
+  chibitaru-news --学ぶ          注意報の名前を気象庁から覚える
+
+集めるもの:
+  地震    震度3以上（気象庁）
+  注意報  発表中のもの（気象庁）
+  天気    予報と気温（気象庁）
+  紛争    NHK 国際ニュースのうち、争いに関わるもの
+
+情報源ごとに別々に貯める。テザリングでは片方だけ落ちることがあり、
+まとめて書き出すと、取れなかったぶんが消えてしまう。取れたものだけ
+入れ替えれば、前に取れたものはそのまま残る。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+JST = timezone(timedelta(hours=9))
+UA = "chibitaru-news/1.0 (+https://github.com/Sub-to/chibitaru)"
+TIMEOUT = 15
+
+JMA = "https://www.jma.go.jp/bosai"
+NHK_WORLD = "https://www3.nhk.or.jp/rss/news/cat6.xml"
+
+# 気象庁の府県予報区。ここは公式の一覧（bosai/common/const/area.json）
+# から起こした。手で書き写すと必ずどこかを間違える。
+AREAS = {
+    "宗谷地方": "011000", "上川・留萌地方": "012000",
+    "網走・北見・紋別地方": "013000", "十勝地方": "014030",
+    "釧路・根室地方": "014100", "胆振・日高地方": "015000",
+    "石狩・空知・後志地方": "016000", "渡島・檜山地方": "017000",
+    "青森県": "020000", "岩手県": "030000", "宮城県": "040000",
+    "秋田県": "050000", "山形県": "060000", "福島県": "070000",
+    "茨城県": "080000", "栃木県": "090000", "群馬県": "100000",
+    "埼玉県": "110000", "千葉県": "120000", "東京都": "130000",
+    "神奈川県": "140000", "新潟県": "150000", "富山県": "160000",
+    "石川県": "170000", "福井県": "180000", "山梨県": "190000",
+    "長野県": "200000", "岐阜県": "210000", "静岡県": "220000",
+    "愛知県": "230000", "三重県": "240000", "滋賀県": "250000",
+    "京都府": "260000", "大阪府": "270000", "兵庫県": "280000",
+    "奈良県": "290000", "和歌山県": "300000", "鳥取県": "310000",
+    "島根県": "320000", "岡山県": "330000", "広島県": "340000",
+    "山口県": "350000", "徳島県": "360000", "香川県": "370000",
+    "愛媛県": "380000", "高知県": "390000", "福岡県": "400000",
+    "佐賀県": "410000", "長崎県": "420000", "熊本県": "430000",
+    "大分県": "440000", "宮崎県": "450000", "奄美地方": "460040",
+    "鹿児島県（奄美地方除く）": "460100", "沖縄本島地方": "471000",
+    "大東島地方": "472000", "宮古島地方": "473000", "八重山地方": "474000",
+}
+
+# 震度の並び。文字のままでは比べられない（"5-" と "10" のような）。
+SHINDO = ["1", "2", "3", "4", "5-", "5+", "6-", "6+", "7"]
+SHINDO_MIN = "3"          # これ未満は流さない
+
+# 争いに関わる話。これに当たったものだけ流す。
+CONFLICT = re.compile(
+    r"(侵攻|侵略|空爆|砲撃|爆撃|交戦|戦闘|停戦|休戦|軍事|ミサイル|"
+    r"紛争|内戦|クーデター|武装|銃撃|テロ|派兵|動員|徴兵|核実験|"
+    r"核開発|制裁|封鎖|拘束|死者|犠牲)")
+# 争いの語を含むが、争いではないもの。
+NOT_CONFLICT = re.compile(r"(サイバー|ハッカー|サッカー|野球|五輪|ゲーム|映画)")
+
+
+# ── 置き場所 ──────────────────────────────────────────────
+def conf_dir() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
+    d = Path(base) / "chibitaru"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def cache_dir() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
+    d = Path(base) / "chibitaru" / "news.d"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def out_path() -> Path:
+    return cache_dir().parent / "news"
+
+
+def area() -> tuple[str, str]:
+    """（コード, 名前）。決めていなければ東京。"""
+    f = conf_dir() / "news"
+    code, name = "130000", "東京都"
+    if f.is_file():
+        for line in f.read_text().splitlines():
+            k, _, v = line.partition("=")
+            if k.strip() == "CHIBITARU_AREA" and v.strip():
+                code = v.strip()
+            elif k.strip() == "CHIBITARU_AREA_NAME" and v.strip():
+                name = v.strip()
+    return code, name
+
+
+def set_area(name: str) -> int:
+    hit = None
+    for k in AREAS:
+        if name == k or name.rstrip("都道府県地方") in k:
+            hit = k
+            break
+    if hit is None:
+        print(f"「{name}」が見つかりません。--地域一覧 で確かめてください",
+              file=sys.stderr)
+        return 1
+    (conf_dir() / "news").write_text(
+        f"# chibitaru-news が生成\nCHIBITARU_AREA={AREAS[hit]}\n"
+        f"CHIBITARU_AREA_NAME={hit}\n", encoding="utf-8")
+    print(f"天気は {hit} を見ます")
+    return 0
+
+
+# ── 取りに行く ────────────────────────────────────────────
+def fetch(url: str):
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return r.read()
+
+
+def fetch_json(url: str):
+    return json.loads(fetch(url))
+
+
+def warning_names() -> dict:
+    """
+    注意報のコード → 名前。
+
+    気象庁は対応表を公開していないので、実際に流れてくる防災 XML から
+    起こした。冬の注意報は夏には流れてこないので、この表は最初から
+    完全にはならない。--学ぶ で、その時に出ているものを覚えていく。
+
+    知らないコードに名前を作らないこと。「たぶん大雪注意報」と出して
+    外すより、種類が分からないと言うほうがいい。
+    """
+    names = {}
+    seed = ROOT / "profiles" / "warning-codes.json"
+    if seed.is_file():
+        names.update(json.loads(seed.read_text()))
+    learned = cache_dir().parent / "warning-codes.json"
+    if learned.is_file():
+        try:
+            names.update(json.loads(learned.read_text()))
+        except ValueError:
+            pass
+    return names
+
+
+def learn_warnings() -> int:
+    """いま流れている防災 XML から、注意報の名前を拾って覚える。"""
+    names = warning_names()
+    before = len(names)
+    try:
+        feed = fetch("https://www.data.jma.go.jp/developer/xml/feed/extra.xml")
+    except (urllib.error.URLError, OSError) as e:
+        print(f"気象庁につながりません（{e}）", file=sys.stderr)
+        return 1
+    ids = re.findall(
+        rb"<id>(https://www\.data\.jma\.go\.jp/developer/xml/data/"
+        rb"[^<]*VPWW5[0-9]_[^<]*)</id>", feed)
+    for u in ids[:40]:
+        try:
+            x = fetch(u.decode()).decode("utf-8", "replace")
+        except (urllib.error.URLError, OSError):
+            continue
+        for name, code in re.findall(
+                r"<Name>([^<]*(?:警報|注意報))</Name>\s*<Code>(\d+)</Code>", x):
+            # 「レベル３大雨警報」の頭を落とす。同じものが違う名前で
+            # 入ると、出るたびに表記が変わって落ち着かない。
+            names[code] = re.sub(r"^レベル[０-９0-9]\s*", "", name)
+    (cache_dir().parent / "warning-codes.json").write_text(
+        json.dumps(names, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"注意報の名前を {len(names)} 種類 覚えました（{len(names)-before} 増えた）")
+    return 0
+
+
+# ── それぞれの情報源 ──────────────────────────────────────
+def src_quake() -> list[str]:
+    """震度3以上の地震。丸一日より古いものは流さない。"""
+    d = fetch_json(f"{JMA}/quake/data/list.json")
+    now = datetime.now(JST)
+    # 同じ地震が二度載る。速報（震源が空）と、あとから出る震源・震度
+    # 情報の両方が並ぶため。起きた時刻でまとめ、中身の多いほうを採る。
+    best: dict[str, dict] = {}
+    for e in d[:40]:
+        maxi = e.get("maxi") or ""
+        if maxi not in SHINDO or SHINDO.index(maxi) < SHINDO.index(SHINDO_MIN):
+            continue
+        try:
+            at = datetime.fromisoformat(e["at"])
+        except (KeyError, ValueError):
+            continue
+        if now - at > timedelta(days=1):
+            continue
+        key = e["at"]
+        prev = best.get(key)
+        if prev is None or (not prev.get("anm") and e.get("anm")):
+            best[key] = e
+
+    out = []
+    for e in sorted(best.values(), key=lambda x: x["at"], reverse=True)[:3]:
+        at = datetime.fromisoformat(e["at"])
+        mag = e.get("mag") or ""
+        where = e.get("anm") or "場所を調べています"
+        out.append(f"［地震］{where} 震度{e['maxi']}"
+                   + (f" M{mag}" if mag else "")
+                   + f" {at.strftime('%H:%M')}")
+    return out
+
+
+def src_warning(code: str) -> list[str]:
+    """発表中の注意報・警報。自分の区域のものだけ。"""
+    d = fetch_json(f"{JMA}/warning/data/warning/{code}.json")
+    names = warning_names()
+    # 府県予報区の中の、最初の（＝主となる）区域を見る。
+    # 離島まで混ぜると、自分に関係ない警報が並ぶ。
+    main = None
+    active, unknown = [], 0
+    for at in d.get("areaTypes", []):
+        for a in at.get("areas", []):
+            if main is None:
+                main = a.get("code")
+            if a.get("code") != main:
+                continue
+            for w in a.get("warnings", []):
+                if w.get("status") not in ("発表", "継続"):
+                    continue
+                n = names.get(w.get("code", ""))
+                if n:
+                    active.append(n)
+                else:
+                    unknown += 1
+    if not active and not unknown:
+        return []
+    parts = sorted(set(active))
+    if unknown:
+        # 知らないコードに名前を作らない。数だけ言う。
+        parts.append(f"ほか{unknown}件")
+    return ["［注意報］" + "・".join(parts)]
+
+
+def src_weather(code: str, name: str) -> list[str]:
+    d = fetch_json(f"{JMA}/forecast/data/forecast/{code}.json")
+    ts = d[0]["timeSeries"]
+    a = ts[0]["areas"][0]
+    when = datetime.fromisoformat(ts[0]["timeDefines"][0])
+    day = "今日" if when.date() == datetime.now(JST).date() else "明日"
+    # 予報文は「雨　夜遅く　くもり　所により…」のように全角空白で
+    # 区切られている。詰めてから字数で切ると語の途中で切れて読めない
+    # （「雷を伴」で終わった）。区切りごとに足していって、はみ出す
+    # 手前でやめる。
+    text, budget = "", 26
+    for seg in re.split(r"[　\s]+", (a.get("weathers") or [""])[0]):
+        if not seg:
+            continue
+        if len(text) + len(seg) > budget:
+            break
+        text += seg
+
+    # 府県の中には区分がいくつもある（宮崎県なら南部平野部・北部山沿い
+    # など）。先頭を採っている。どこを見ているのかは表示に出す —
+    # 県名だけ出すと、隣の山沿いの予報を自分の町のものだと思い込む。
+    temp, where = "", a["area"]["name"]
+    for t in ts:
+        if "temps" in t["areas"][0]:
+            spot = t["areas"][0]
+            vals = [int(v) for v in spot["temps"] if v not in ("", None)]
+            if vals:
+                temp = (f" {min(vals)}〜{max(vals)}°" if min(vals) != max(vals)
+                        else f" {vals[0]}°")
+                where = spot["area"]["name"]
+            break
+    return [f"{where} {day} {text}{temp}"]
+
+
+def src_world() -> list[str]:
+    xml = fetch(NHK_WORLD).decode("utf-8", "replace")
+    titles = re.findall(r"<title>(.*?)</title>", xml, re.S)[1:]   # 先頭は媒体名
+    out = []
+    for t in titles:
+        t = re.sub(r"<.*?>", "", t).strip()
+        t = t.replace("【動画】", "").replace("【詳細】", "")
+        if not t or NOT_CONFLICT.search(t) or not CONFLICT.search(t):
+            continue
+        out.append(t[:44])
+        if len(out) >= 4:
+            break
+    return out
+
+
+# ── まとめる ──────────────────────────────────────────────
+# 並び順。急ぐものが先。天気より地震のほうが先に読まれてほしい。
+SOURCES = ["quake", "warn", "weather", "world"]
+
+
+def gather() -> int:
+    code, name = area()
+    jobs = {
+        "quake":   src_quake,
+        "warn":    lambda: src_warning(code),
+        "weather": lambda: src_weather(code, name),
+        "world":   src_world,
+    }
+    ok, failed = 0, []
+    for key in SOURCES:
+        try:
+            lines = jobs[key]()
+        except (urllib.error.URLError, OSError, ValueError,
+                KeyError, IndexError) as e:
+            # 取れなかったものは触らない。前に取れたものが残る。
+            failed.append(f"{key}({type(e).__name__})")
+            continue
+        (cache_dir() / key).write_text("\n".join(lines) + ("\n" if lines else ""),
+                                       encoding="utf-8")
+        ok += 1
+
+    merged = []
+    for key in SOURCES:
+        f = cache_dir() / key
+        if f.is_file():
+            merged += [l for l in f.read_text().splitlines() if l.strip()]
+
+    if not merged:
+        print("何も取れませんでした", file=sys.stderr)
+        return 1
+    out_path().write_text("\n".join(merged) + "\n", encoding="utf-8")
+    if failed:
+        print(f"{ok}件を更新（取れず: {', '.join(failed)}）")
+    else:
+        print(f"{ok}件を更新")
+    return 0
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if "--地域一覧" in argv or "--areas" in argv:
+        for k in AREAS:
+            print(k)
+        return 0
+    if "--学ぶ" in argv or "--learn" in argv:
+        return learn_warnings()
+    for flag in ("--地域", "--area"):
+        if flag in argv:
+            i = argv.index(flag)
+            if i + 1 >= len(argv):
+                print("地域の名前を渡してください", file=sys.stderr)
+                return 1
+            return set_area(argv[i + 1])
+    if "--show" in argv:
+        p = out_path()
+        print(p.read_text().rstrip() if p.is_file() else "（まだ何もありません）")
+        return 0
+    return gather()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo backlight install theme vault music ime session report)
+STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo backlight install theme vault music ime news session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -494,6 +494,32 @@ EOF
     esac
   done
   c_ok "/usr/local/bin に chibitaru-* を通した"
+}
+
+# ═══════════════════════════════════════════════════════════
+step_news() {
+  c_head "お知らせ枠の下ごしらえ"
+  # 実際のお知らせは chibitaru-news が集めて ~/.cache に置く。
+  # ここに置くのは、まだ一度も取りに行けていない間に出る文言だけ。
+  # 「情報源は未接続」と書いたまま忘れると、繋がっているのに
+  # 繋がっていないと表示し続ける（実際にそうなっていた）。
+  install -D -m 644 /dev/stdin /etc/chibitaru/news <<'EOF'
+# 一度も取りに行けていない時に出る文言。実際のお知らせは
+# chibitaru-news が集めて ~/.cache/chibitaru/news に置く。
+お知らせを取りに行っています
+EOF
+  c_ok "/etc/chibitaru/news（取れるまでの文言）"
+
+  # 地域を決めていなければ最初の一回だけ既定を書く。決めてあれば触らない。
+  local conf="$TARGET_HOME/.config/chibitaru/news"
+  if [ ! -f "$conf" ]; then
+    mkuserdir "$(dirname "$conf")"
+    printf '# chibitaru-news --地域 ○○県 で変えられます\nCHIBITARU_AREA=130000\nCHIBITARU_AREA_NAME=東京都\n' > "$conf"
+    chown "$TARGET_USER:$TARGET_USER" "$conf"
+    c_warn "天気は東京になっています（chibitaru-news --地域 ○○県 で変更）"
+  else
+    c_ok "地域は設定済み: $(awk -F= '/^CHIBITARU_AREA_NAME=/{print $2}' "$conf")"
+  fi
 }
 
 # ═══════════════════════════════════════════════════════════
