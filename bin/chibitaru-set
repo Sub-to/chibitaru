@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""
+設定を見る・変える。
+
+  chibitaru-set                いま触れるものを全部見る
+  chibitaru-set 明るさ         いくつか見る
+  chibitaru-set 明るさ 40      その値にする
+  chibitaru-set 音量 上げて    一段上げる
+  chibitaru-set --目録         触れるものの一覧（AI に渡す説明）
+  chibitaru-set --json ...     機械向けに返す
+
+何をどう動かすかは lib/knobs.py の目録が持っている。ここは入り口だけ。
+画面も声もここと同じ目録を通るので、片方だけできて片方はできない、
+ということが起きない。
+
+戻り値:
+  0  できた
+  1  できなかった
+  3  確認が要る（電源など。ここでは実行しない）
+  4  何のことか分からなかった
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import knobs  # noqa: E402
+
+
+def show_all(as_json: bool) -> int:
+    if as_json:
+        print(json.dumps(
+            {k.key: (None if k.get is None else k.get()) for k in knobs.CATALOG},
+            ensure_ascii=False))
+        return 0
+    for k in knobs.CATALOG:
+        # 変えられるものと見るだけのものを、印で分ける。
+        mark = "  " if k.set else ("！" if k.kind == "danger" else "・")
+        print(f"{mark}{k.label:　<7}{knobs.fmt(k):>7}")
+    return 0
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    as_json = "--json" in argv
+    argv = [a for a in argv if a != "--json"]
+
+    if "--目録" in argv or "--list" in argv:
+        print(knobs.describe())
+        return 0
+
+    if not argv:
+        return show_all(as_json)
+
+    text = " ".join(argv)
+    k = knobs.find(text)
+    if k is None:
+        msg = f"「{text}」が何のことか分かりませんでした"
+        if as_json:
+            print(json.dumps({"key": None, "message": msg}, ensure_ascii=False))
+        else:
+            print(msg, file=sys.stderr)
+        return 4
+
+    # 危ないものは名前を言われた時点で確認に回す。「電源切って」は
+    # 「電源」も「切って」も手がかりなので、言葉を取り除くと何も
+    # 残らず「いまの値を教えて」と同じ形になってしまう。
+    if k.kind == "danger":
+        rc, msg = 3, f"{k.label}は押して確かめてください"
+    else:
+        # 名前だけ言われたら、いまの値を返す
+        rest = text
+        for w in k.words:
+            rest = rest.replace(w, " ")
+        rc, msg = ((0, f"{k.label}は {knobs.fmt(k)} です") if not rest.strip()
+                   else knobs.apply(k, text))
+
+    if as_json:
+        print(json.dumps({"key": k.key, "label": k.label, "message": msg,
+                          "value": None if k.get is None else k.get(),
+                          "confirm": k.kind == "danger", "ok": rc == 0},
+                         ensure_ascii=False))
+    else:
+        print(msg)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

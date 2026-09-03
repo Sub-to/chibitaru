@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$HERE")"
 
-STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo install theme vault music ime session report)
+STEPS=(preflight profile packages gpu usb zram sysctl earlyoom firefox podman sudo backlight install theme vault music ime session report)
 
 # ── 表示 ──────────────────────────────────────────────────
 c_head() { printf "\n\033[1m  %s\033[0m\n" "$*"; }
@@ -477,12 +477,55 @@ command -v podman >/dev/null && ! command -v docker >/dev/null && alias docker=p
 EOF
   c_ok "docker → podman の別名を設定"
 
-  # chibitaru-theme などを PATH から呼べるようにする
-  for b in /opt/chibitaru/bin/*; do
+  # chibitaru-theme などを PATH から呼べるようにする。
+  # bin/ の中身を無条件に通すと、昔の名残（別の機種向けに作られた
+  # 実行ファイルなど）まで PATH に並ぶ。実機で /usr/local/bin に
+  # 動きもしない llama-server が置かれていた。名前で絞る。
+  for b in /opt/chibitaru/bin/chibitaru-*; do
     [ -x "$b" ] || continue
     ln -sf "$b" "/usr/local/bin/$(basename "$b")"
   done
+  # 昔の版が通した、chibitaru- で始まらないものを片づける
+  for l in /usr/local/bin/*; do
+    [ -L "$l" ] || continue
+    case "$(readlink "$l")" in
+      /opt/chibitaru/bin/chibitaru-*) ;;
+      /opt/chibitaru/bin/*) rm -f "$l" ;;
+    esac
+  done
   c_ok "/usr/local/bin に chibitaru-* を通した"
+}
+
+# ═══════════════════════════════════════════════════════════
+step_backlight() {
+  c_head "画面の明るさを利用者に開ける"
+  # 明るさは古い機体で電池が一番もつ効き所だが、既定では root しか
+  # 書けない。画面は root で動かさないので、ここを開けないと
+  # 「暗くして」と言われて何もできない。
+  #
+  # 開けるのは brightness だけ。video グループはもともと画面まわりを
+  # 触るための入れもので、ここに明るさを足しても増える権限は無い。
+  install -D -m 644 /dev/stdin /etc/udev/rules.d/90-chibitaru-backlight.rules <<'EOF'
+# install/setup.sh が生成。画面の明るさを video グループに開ける。
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+EOF
+  udevadm control --reload 2>/dev/null || true
+
+  # 規則は次の起動から効く。いま動いているものにも当てておく。
+  local found=0
+  for d in /sys/class/backlight/*/; do
+    [ -w "$d/brightness" ] || [ -e "$d/brightness" ] || continue
+    chgrp video "$d/brightness" 2>/dev/null || true
+    chmod g+w   "$d/brightness" 2>/dev/null || true
+    found=1
+  done
+
+  if [ "$found" = 1 ]; then
+    c_ok "明るさを $TARGET_USER から変えられるようにした"
+  else
+    # 明るさを持たない機体（据え置き機など）もある。異常ではない。
+    c_warn "明るさを変えられる画面が見つからない（据え置き機なら正常）"
+  fi
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -533,7 +576,7 @@ step_install() {
   fi
 
   install -d -m 755 /opt/chibitaru
-  for d in bin tui tools profiles install docs; do
+  for d in bin lib tui tools profiles install docs; do
     [ -d "$REPO/$d" ] || continue
     rm -rf "/opt/chibitaru/$d"
     cp -a "$REPO/$d" /opt/chibitaru/
@@ -554,6 +597,14 @@ step_install() {
     c_ok "tui/chibitaru_tui.py"
   else
     c_die "TUI を置けませんでした"
+  fi
+  # 目録は画面と声の両方が読み込む。置き忘れると、画面は出るのに
+  # 何を言っても動かない、という分かりにくい壊れ方をする。
+  # 存在だけでなく読み込めるところまで見る。
+  if python3 -c "import sys; sys.path.insert(0,'/opt/chibitaru/lib'); import knobs; assert knobs.CATALOG" 2>/dev/null; then
+    c_ok "lib/knobs.py（設定の目録）"
+  else
+    c_die "設定の目録を置けませんでした"
   fi
 }
 

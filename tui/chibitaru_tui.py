@@ -95,12 +95,18 @@ def load_profile() -> dict:
 
 def _theme_path() -> str:
     """
-    /etc/chibitaru/theme で選ばれた配色ファイルを返す。
+    選ばれた配色ファイルを返す。
+
+    /etc は機械ぜんたいの既定、~/.config はその人の好み。好みが勝つ。
+    見た目は特権なしで変えられるべきなので、書き込み先を分けてある。
     無ければ mocha に落ちる（設定が壊れていても画面は出す）。
     """
     name = "mocha"
-    conf = Path("/etc/chibitaru/theme")
-    if conf.is_file():
+    base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
+    for conf in (Path("/etc/chibitaru/theme"),
+                 Path(base) / "chibitaru" / "theme"):
+        if not conf.is_file():
+            continue
         for line in conf.read_text().splitlines():
             if line.startswith("CHIBITARU_THEME="):
                 cand = line.partition("=")[2].strip()

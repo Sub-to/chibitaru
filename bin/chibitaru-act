@@ -9,6 +9,11 @@
 語の並びで足りるものは語で片づけ、そうでないものだけ Qwen に回す。
 MYLN-FRAME を常駐させて重いものは呼ぶ時だけ、という方針と同じ。
 
+触れるものそのものは lib/knobs.py の目録が持っている。ここは
+「何を言われたか」を決めるだけで、どう動かすかは持たない。
+以前は判定と実行の両方をここに書いていて、目録を足しても声からは
+触れない、という食い違いが出た（音量は言えるのに明るさは言えない）。
+
 戻り値:
   0  実行した
   3  意図は分かったが確認が要る（危ないもの）
@@ -19,77 +24,15 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
-VOL_STEP = 10
-VOL_STEP_BIG = 25    # 「もっと」と言われた時
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import knobs  # noqa: E402
+from knobs import sh  # noqa: E402
 
 
-def sh(*args: str, timeout: int = 5) -> tuple[int, str]:
-    try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-        return p.returncode, (p.stdout or p.stderr).strip()
-    except FileNotFoundError:
-        return 127, f"{args[0]} がありません"
-    except subprocess.SubprocessError as e:
-        return 1, str(e)
-
-
-def wpctl(*args: str) -> tuple[int, str]:
-    return sh("wpctl", *args)
-
-
-def current_volume() -> int | None:
-    rc, out = wpctl("get-volume", "@DEFAULT_AUDIO_SINK@")
-    if rc != 0:
-        return None
-    try:
-        return round(float(out.split()[1]) * 100)
-    except (IndexError, ValueError):
-        return None
-
-
-# ── 動作 ──────────────────────────────────────────────────
-def act_volume(text: str) -> tuple[int, str]:
-    now = current_volume()
-    if now is None:
-        return 1, "音量を読めませんでした"
-
-    # 「60%にして」のように数字が入っていればそれに合わせる
-    m = re.search(r"(\d{1,3})\s*(?:%|パーセント)", text)
-    if m:
-        target = max(0, min(150, int(m.group(1))))
-    elif re.search(r"(消|ミュート|黙)", text):
-        wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "1")
-        return 0, "音を消しました"
-    elif re.search(r"(戻|解除|つけ)", text) and "ミュート" in text:
-        wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "0")
-        return 0, "音を戻しました"
-    else:
-        # 「もっと」と言われたら大きく動かす。10% ずつでは、言い直す
-        # たびに同じだけしか変わらず、伝わっていないように感じる。
-        step = VOL_STEP_BIG if re.search(r"(もっと|ずっと|もう少し|かなり)", text) else VOL_STEP
-        if re.search(r"(上げ|大きく|でかく|あげ)", text):
-            # 100% を超えると割れる。数字で指定された時だけ超えさせる。
-            if now >= 100:
-                return 0, "もう最大です"
-            target = min(100, now + step)
-        elif re.search(r"(下げ|小さく|さげ|抑え)", text):
-            if now <= 0:
-                return 0, "もう最小です"
-            target = max(0, now - step)
-        else:
-            return 0, f"いまの音量は {now}% です"
-
-    wpctl("set-mute", "@DEFAULT_AUDIO_SINK@", "0")
-    rc, err = wpctl("set-volume", "@DEFAULT_AUDIO_SINK@", f"{target}%")
-    if rc != 0:
-        return 1, f"変えられませんでした（{err}）"
-    return 0, f"音量を {target}% にしました"
-
-
+# ── 動作（設定ではなく、やること） ────────────────────────
 def act_music(text: str) -> tuple[int, str]:
     if re.search(r"(次|つぎ|進め)", text):
         sh("mpc", "next")
@@ -144,54 +87,40 @@ def act_note(text: str) -> tuple[int, str]:
 
 
 def act_status(text: str) -> tuple[int, str]:
+    """
+    計器をまとめて言う。
+
+    数字は目録から取る。ここで /proc を読み直していた頃は、電池を
+    1 本しか見ておらず、画面（2 本合算）と食い違っていた。
+    """
     parts = []
-    v = current_volume()
-    if v is not None:
-        parts.append(f"音量 {v}%")
-    try:
-        info = {}
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            k, _, val = line.partition(":")
-            info[k] = int(val.split()[0])
-        used = (info["MemTotal"] - info["MemAvailable"]) / 1048576
-        total = info["MemTotal"] / 1048576
-        parts.append(f"記憶 {used:.1f}/{total:.0f}GB")
-    except (OSError, KeyError, ValueError):
-        pass
-    for b in sorted(Path("/sys/class/power_supply").glob("BAT*")):
-        cap = b / "capacity"
-        if cap.is_file():
-            parts.append(f"電池 {cap.read_text().strip()}%")
-            break
+    for key in ("battery", "volume", "brightness", "mem", "temp"):
+        k = knobs.BY_KEY[key]
+        v = k.get() if k.get else None
+        if v is not None:
+            parts.append(f"{k.label} {v}{k.unit}")
     return 0, "、".join(parts) if parts else "分かりませんでした"
 
 
 # ── 何を言われたのか ──────────────────────────────────────
-# 上から順に見て、最初に当たったものを採る。
-RULES = [
-    # 危ないものは実行せず、確認を求める（戻り値 3）
-    ("power",  r"(電源|でんげん|シャットダウン|終了して|切って)", None),
-    ("reboot", r"(再起動|リブート|立ち上げ直)", None),
-    # 温度は変えられないので、「温度を下げて」と聞こえたら音量の
-    # 言い間違いとして扱う。実機で whisper が実際にそう間違えた。
-    # 同じ理由で「照度」「湿度」なども音量に寄せる。
-    ("volume", r"(音量|ボリューム|ボリウム|音を|音が|ミュート|うるさ|聞こえ|"
-               r"温度|おんど|照度|湿度)", act_volume),
-    ("music",  r"(音楽|曲|再生|流して|止めて|次の曲|前の曲)", act_music),
+# 「やること」を先に見る。設定より動作のほうが言い方が限られていて、
+# 取り違えにくい。残りは目録に任せる。
+ACTIONS = [
+    ("music",  r"(音楽|曲|再生|流して|止めて|とめて|次の曲|前の曲|一時停止)", act_music),
     ("note",   r"(日記|ノート|メモ|書き留め)", act_note),
-    ("status", r"(状態|どう|残り|バッテリ|電池|メモリ|記憶)", act_status),
+    ("status", r"(状態|具合|ぐあい|どうなって|全部)", act_status),
 ]
 
 
-def decide(text: str) -> tuple[str, object]:
-    for name, pattern, fn in RULES:
-        if re.search(pattern, text):
-            return name, fn
-    # 何を、が抜けた「下げて」「上げて」。この画面で上げ下げするものは
-    # 音量しかないので、そう受け取る。聞き返すより早い。
-    if re.search(r"(上げ|下げ|大きく|小さく|あげ|さげ)", text):
-        return "volume", act_volume
-    return "unknown", None
+def emit(kind: str, rc: int, msg: str, as_json: bool, confirm: bool = False) -> int:
+    # 「用意しました|パス」のように、後ろに場所を付けて返すものがある
+    message, _, extra = msg.partition("|")
+    if as_json:
+        print(json.dumps({"kind": kind, "message": message, "path": extra or None,
+                          "confirm": confirm, "ok": rc == 0}, ensure_ascii=False))
+    else:
+        print(message)
+    return rc
 
 
 def main() -> int:
@@ -202,28 +131,28 @@ def main() -> int:
         return 4
     text = " ".join(args)
 
-    kind, fn = decide(text)
+    for name, pattern, fn in ACTIONS:
+        if re.search(pattern, text):
+            rc, msg = fn(text)
+            return emit(name, rc, msg, as_json)
 
-    if kind in ("power", "reboot"):
+    k = knobs.find(text)
+    if k is None:
+        # 何を、が抜けた「下げて」「上げて」。この画面で上げ下げする
+        # ものは音量が主なので、そう受け取る。聞き返すより早い。
+        if re.search(r"(上げ|下げ|大きく|小さく|あげ|さげ)", text):
+            k = knobs.BY_KEY["volume"]
+        else:
+            return emit("unknown", 4, "うまく聞き取れませんでした", as_json)
+
+    if k.kind == "danger":
         # 実行しない。確認は画面側で取る。取り返しがつかないものを
         # 聞き間違いで実行しないため。
-        word = "電源を切ります" if kind == "power" else "再起動します"
-        out = {"kind": kind, "confirm": True, "message": f"{word}。よろしいですか？"}
-        print(json.dumps(out, ensure_ascii=False) if as_json else out["message"])
-        return 3
+        word = "電源を切ります" if k.key == "power" else "再起動します"
+        return emit(k.key, 3, f"{word}。よろしいですか？", as_json, confirm=True)
 
-    if fn is None:
-        msg = "うまく聞き取れませんでした"
-        print(json.dumps({"kind": "unknown", "message": msg}, ensure_ascii=False)
-              if as_json else msg)
-        return 4
-
-    rc, msg = fn(text)
-    # 「用意しました|パス」のように、後ろに場所を付けて返すものがある
-    message, _, extra = msg.partition("|")
-    out = {"kind": kind, "message": message, "path": extra or None, "ok": rc == 0}
-    print(json.dumps(out, ensure_ascii=False) if as_json else message)
-    return rc
+    rc, msg = knobs.apply(k, text)
+    return emit(k.key, rc, msg, as_json)
 
 
 if __name__ == "__main__":

@@ -32,7 +32,11 @@ tmux set-option -t "$SESSION" mouse on
 tmux set-option -t "$SESSION" escape-time 10
 tmux set-option -t "$SESSION" history-limit 5000
 # 境目の色。テーマに合わせる（surface と blue）
-case "$(awk -F= '/^CHIBITARU_THEME=/{print $2}' /etc/chibitaru/theme 2>/dev/null)" in
+# 個人の好みが機械の既定に勝つ（chibitaru-theme と同じ順番にすること）
+THEME_NAME=$(for f in /etc/chibitaru/theme "${XDG_CONFIG_HOME:-$HOME/.config}/chibitaru/theme"; do
+  [ -r "$f" ] && awk -F= '/^CHIBITARU_THEME=/{print $2}' "$f"
+done | tail -1)
+case "$THEME_NAME" in
   latte) BORDER="#ccd0da"; ACTIVE="#1e66f5" ;;
   *)     BORDER="#313244"; ACTIVE="#89b4fa" ;;
 esac
