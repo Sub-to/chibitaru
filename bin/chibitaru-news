@@ -340,11 +340,117 @@ def gather() -> int:
         print("何も取れませんでした", file=sys.stderr)
         return 1
     out_path().write_text("\n".join(merged) + "\n", encoding="utf-8")
+    write_art(merged)
     if failed:
         print(f"{ok}件を更新（取れず: {', '.join(failed)}）")
     else:
         print(f"{ok}件を更新")
     return 0
+
+
+# ── 絵にする ──────────────────────────────────────────────
+# 端末では文字の大きさを変えられないので、大きく見せるには絵にする
+# しかない。日本語は字が複雑で手描きできないので、フォントから起こす。
+#
+# ここでやるのが肝心。画面の側でやると PIL が居座り続ける（20MB ほど）。
+# こちらは 10 分に一度動いて終わる。終われば返る。
+ART_ROWS = 6          # これ未満だと漢字が潰れて読めない（3行で試して駄目だった）
+HALF = " ▄▀█"
+
+# Bold を先に置く。Black のほうが太くて見栄えはいいが、機体によって
+# 入っていたりいなかったりする。下のしきい値は Bold に合わせて
+# 決めたので、太さが機体ごとに変わると、片方で潰れ片方で中抜けする。
+FONT_CANDIDATES = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/google-noto-sans-cjk-fonts/NotoSansCJK-Bold.ttc",
+]
+
+# 白黒に落とす境目。12 画素の漢字は線が細く、ここを間違えると読めない。
+# 実機で 40 / 70 / 110 を並べて見比べた。110 は中が抜け、40 は太って
+# 「宮」の中が埋まる。
+THRESHOLD = 70
+
+
+def find_font() -> str | None:
+    for p in FONT_CANDIDATES:
+        if Path(p).is_file():
+            return p
+    # 決め打ちで外れたら、システムに訊く
+    try:
+        import subprocess
+        out = subprocess.run(["fc-match", "-f", "%{file}", "Noto Sans CJK JP:bold"],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        return out if out and Path(out).is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
+def render_art(text: str) -> list[str] | None:
+    """
+    文字を 6 行の絵にする。太い字を使う。細い線は離れると消える。
+
+    PIL が無ければ None。画面側は文字のまま流すので、絵が無くても
+    お知らせは出る。飾りのために中身を失わせない。
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return None
+    font_path = find_font()
+    if not font_path:
+        return None
+
+    px = ART_ROWS * 2          # 半ブロックで 1 行あたり縦 2 画素
+    try:
+        f = ImageFont.truetype(font_path, px)
+        w = int(f.getlength(text)) + 2
+        im = Image.new("L", (max(w, 2), px), 0)
+        ImageDraw.Draw(im).text((0, 0), text, font=f, fill=255, anchor="lt")
+    except (OSError, ValueError):
+        return None
+
+    rows = []
+    for r in range(ART_ROWS):
+        line = []
+        for x in range(im.width):
+            top = im.getpixel((x, r * 2)) > THRESHOLD
+            bot = im.getpixel((x, r * 2 + 1)) > THRESHOLD
+            line.append(HALF[(1 if bot else 0) | (2 if top else 0)])
+        rows.append("".join(line))
+    return rows
+
+
+def art_wanted() -> bool:
+    """
+    絵にするかどうか。既定は「しない」。
+
+    6 行あれば漢字は読めるが、升目に落とすと字の形が崩れて見える。
+    それに流し続けるだけで CPU を 21% 使う（2 コアの機体で実測）。
+    省電力のための OS でそれは割に合わない。
+    使いたい人は ~/.config/chibitaru/news に書けば使える。
+    """
+    f = conf_dir() / "news"
+    if not f.is_file():
+        return False
+    for line in f.read_text().splitlines():
+        k, _, v = line.partition("=")
+        if k.strip() == "CHIBITARU_NEWS_ART":
+            return v.strip() in ("1", "yes", "true")
+    return False
+
+
+def write_art(lines: list[str]) -> None:
+    art_path = cache_dir().parent / "news.art"
+    if not lines or not art_wanted():
+        art_path.unlink(missing_ok=True)
+        return
+    art = render_art("　　◆　　".join(lines) + "　　　　")
+    if art is None:
+        # 描けなかったものを消さない。前に描けたものが流れ続ける。
+        return
+    art_path.write_text("\n".join(art), encoding="utf-8")
 
 
 def main() -> int:

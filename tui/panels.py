@@ -9,12 +9,17 @@ Vault シェルの計器類。
 from __future__ import annotations
 
 import subprocess
+import sys
 import unicodedata
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import bigtext  # noqa: E402
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from rich.text import Text
 from textual.widgets import Label, Static
 
 WEEKDAY = ("月", "火", "水", "木", "金", "土", "日")
@@ -189,13 +194,28 @@ class NewsTicker(Static):
 
     # 個人のものが先。機械ぜんたいの既定は置き場所として残す。
     SOURCES = ("~/.cache/chibitaru/news", "/etc/chibitaru/news")
+    ART = "~/.cache/chibitaru/news.art"
+    PARTS = "~/.cache/chibitaru/news.d"
     FETCH_SECONDS = 600      # 取りに行く間隔。気象庁に何度も訊かない
+
+    # 絵で流す時（既定では使わない）は 1 升ずつでは遅すぎる。字が
+    # 12 升ぶんあるのでまとめて動かす。ただし毎秒 12 回描き直すと
+    # 2 コアの機体で CPU を 21% 使う。普通の字なら 0.4 秒で足りる。
+    ART_STEP = 2
+    ART_INTERVAL = 0.08
+    TEXT_INTERVAL = 0.4
 
     def on_mount(self) -> None:
         self._offset = 0
         self._text = ""
+        self._fixed = ""
+        self._art: list[str] = []
         self.load()
-        self.set_interval(0.4, self.scroll_step)   # 流れ
+        # 絵なら細かく、字ならゆっくり。字の時に速く回しても、
+        # 1 升ずつしか動かないので速く見えず、CPU だけ食う。
+        self._timer = self.set_interval(
+            self.ART_INTERVAL if self._art else self.TEXT_INTERVAL,
+            self.scroll_step)
         self.set_interval(60.0, self.load)         # 読み直し
         # すぐには取りに行かない。画面を出すのが先。
         self.set_timer(3.0, self.fetch)
@@ -215,37 +235,94 @@ class NewsTicker(Static):
         self.app.call_from_thread(self.load)
 
     def load(self) -> None:
-        lines = []
-        for s in self.SOURCES:
+        # 地元のこと（地震・注意報・天気）は動かさず、いつも見えるように
+        # 置く。流していると、地震が出ているかどうかを知るのに
+        # 一周待つことになる。急ぐものを待たせない。
+        d = Path(self.PARTS).expanduser()
+        fixed = []
+        for key in ("quake", "warn", "weather"):
             try:
-                lines = [l.strip() for l in Path(s).expanduser().read_text().splitlines()
-                         if l.strip() and not l.startswith("#")]
+                fixed += [l.strip() for l in (d / key).read_text().splitlines()
+                          if l.strip()]
             except OSError:
-                continue
-            if lines:
-                break
-        self._text = "　　◆　　".join(lines) if lines else ""
+                pass
+        self._fixed = "　　".join(fixed)
+
+        try:
+            flow = [l.strip() for l in (d / "world").read_text().splitlines()
+                    if l.strip()]
+        except OSError:
+            flow = []
+
+        if not fixed and not flow:
+            # 分けて貯めたものが無い時（初回や、古い版から上げた直後）は
+            # まとめたほうを流す。空の枠を出すよりまし。
+            for s in self.SOURCES:
+                try:
+                    flow = [l.strip() for l in
+                            Path(s).expanduser().read_text().splitlines()
+                            if l.strip() and not l.startswith("#")]
+                except OSError:
+                    continue
+                if flow:
+                    break
+        self._text = "　　◆　　".join(flow) if flow else ""
+
+        # 絵があればそれを流す。無ければ文字のまま流す。
+        # 絵を作るには PIL が要るが、入っていない機体でもお知らせは
+        # 出したい。飾りのために中身を失わせない。
+        try:
+            art = Path(self.ART).expanduser().read_text().splitlines()
+        except OSError:
+            art = []
+        # 行の長さを揃える。揃っていないと、切り出した時に行ごとに
+        # ずれて字が崩れる。
+        if art:
+            w = max(len(l) for l in art)
+            art = [l.ljust(w) for l in art]
+        self._art = art
 
     def scroll_step(self) -> None:
+        width = max(20, self.size.width - 1)
+        if self._art:
+            # 絵は 1 文字 1 桁なので、そのまま桁で切り出せる。
+            span = len(self._art[0])
+            self._offset = (self._offset + self.ART_STEP) % span
+            # Text で渡す。文字列のまま渡すと、毎回この 950 字を
+            # 書式として解析し直す。絵の中に書式は無いので、その手間は
+            # まるごと無駄になる。
+            self.update(Text("\n".join(
+                (row + row)[self._offset:self._offset + width]
+                for row in self._art)))
+            return
+
+        # 上の行は動かさない。下の行だけ流す。
+        top = " " + self._cut(self._fixed, width) if self._fixed else ""
+
         if not self._text:
-            self.update("")
+            self.update(Text(top))
             return
         # 端まで流れたら頭に戻す。連結して切り出すほうが実装が短い。
         pad = "　" * 8
         loop = self._text + pad
         self._offset = (self._offset + 1) % len(loop)
+        bottom = " " + self._cut((loop + loop)[self._offset:], width)
+        self.update(Text(top + "\n" + bottom if top else bottom))
 
-        # 字数ではなく桁数で切る。日本語と英数字が混ざるので、
-        # 決め打ちの字数だと英語の見出しの時に右が余る。
-        width = max(20, self.size.width - 2)
-        shown, used = [], 0
-        for ch in (loop + loop)[self._offset:]:
+    @staticmethod
+    def _cut(s: str, width: int) -> str:
+        """
+        桁数で切る。字数ではない。日本語は 1 文字 2 桁なので、
+        字数で切ると英語の見出しが来た時に右が余る。
+        """
+        out, used = [], 0
+        for ch in s:
             cw = dw(ch)
             if used + cw > width:
                 break
-            shown.append(ch)
+            out.append(ch)
             used += cw
-        self.update(" " + "".join(shown))
+        return "".join(out)
 
 
 # ══════════════════════════════════════════════════════════
@@ -329,6 +406,33 @@ class MusicBar(Horizontal):
             self.tick()
 
 
+class BigClock(Static):
+    """
+    大きい時計。時と分だけ。
+
+    離れたところから、ちらと見て分かるのがこの大きさの意味なので、
+    秒は出さない。動くものが視界の端にあると気が散る。
+    日付は下に小さく添える。
+    """
+
+    def on_mount(self) -> None:
+        self.tick()
+        # 分しか出さないので毎秒描き直す意味はない。2 コアの機体では
+        # 描き直しそのものが値段になる。
+        self.set_interval(5.0, self.tick)
+
+    def tick(self) -> None:
+        now = datetime.now()
+        # 半分の高さ。6 行だと帯が画面の三分の一を占めて、蔵の木も
+        # 円も潰れた。3 行でも十分に離れたところから読める。
+        rows = bigtext.render(f"{now.hour:02d}:{now.minute:02d}", half=True)
+        w = max(len(r) for r in rows) if rows else 0
+        date = (f"{now.year}-{now.month:02d}-{now.day:02d} "
+                f"({WEEKDAY[now.weekday()]})")
+        # 日付は時計の幅に収める。中央に置くと数字とずれて見える。
+        self.update(Text("\n".join(rows) + "\n" + date.center(w)))
+
+
 class TopBar(Horizontal):
     """左に状態、右に日付と時刻。"""
 
@@ -342,10 +446,9 @@ class TopBar(Horizontal):
 
     def tick(self) -> None:
         self.query_one("#top-state", Label).update(self._state())
-        now = datetime.now()
-        self.query_one("#top-clock", Label).update(
-            f"{now.year}-{now.month:02d}-{now.day:02d} "
-            f"({WEEKDAY[now.weekday()]}) {now.hour:02d}:{now.minute:02d} ")
+        # 時刻と日付は大きい時計が持つ。ここに小さくもう一度出すと、
+        # 同じものが二箇所にあって、どちらを見ればいいのか迷う。
+        self.query_one("#top-clock", Label).update("")
 
     def _state(self) -> str:
         parts = [f" Chibitaru {self.app.tier}"]

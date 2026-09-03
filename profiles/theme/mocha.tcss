@@ -37,11 +37,30 @@ TopBar { height: 1; background: #313244; color: #bac2de; }
    どこまでが Vault でどこからがシェルか分かりにくい。 */
 Footer { border-top: solid #585b70; height: 2; }
 
-/* お知らせ — 画面の一番上を右から左へ流れる */
+/* 帯 — 左にお知らせ、右に大きい時計。どちらも 6 行の絵。
+   端末では文字の大きさを場所ごとに変えられないので、大きく見せる
+   ものは升目に絵として描いてある。 */
+/* 枠線を引かない。border は height の内側を 1 行食うので、
+   日付の行が消える（実機で消えた）。下の状態バーが色違いなので、
+   線を引かなくても境目は分かる。 */
+#band { height: 4; background: #181825; }
+
+/* 字は普通の大きさのまま。升目に絵として描くと 6 行要るうえ、
+   字の形が崩れて見え、流すだけで CPU を 21% 使った。
+   帯そのものを広く取り、字は真ん中に置いて太くする。
+   （絵で流したい時は ~/.config/chibitaru/news に
+     CHIBITARU_NEWS_ART=1 と書く） */
 NewsTicker {
-    height: 1;
+    width: 1fr; height: 4;
     background: #181825; color: #f38ba8;
+    content-align: left middle;
     text-style: bold;
+}
+
+#bigclock {
+    width: 33; height: 4;
+    background: #181825; color: #89b4fa;
+    content-align: center top;
 }
 
 /* 三つの列 — 左は蔵、真ん中は本文か AI、右は計器とボタン */

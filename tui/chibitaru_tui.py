@@ -42,7 +42,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from aiconsole import AIConsole, Switches  # noqa: E402
-from panels import Mixer, MusicBar, NewsTicker, TopBar  # noqa: E402
+from panels import BigClock, Mixer, MusicBar, NewsTicker, TopBar  # noqa: E402
 from textual.widgets import (
     DirectoryTree,
     Footer,
@@ -168,7 +168,11 @@ class ChibitaruTUI(App):
         self.tier = TIER          # 計器類が参照する
 
     def compose(self) -> ComposeResult:
-        yield NewsTicker(id="news")
+        # 時計が左、お知らせが右。時計は 3 行にしてある（6 行だと
+        # 帯が画面の三分の一を占めて、蔵の木も円も潰れた）。
+        with Horizontal(id="band"):
+            yield BigClock(id="bigclock")
+            yield NewsTicker(id="news")
         yield TopBar()
         yield Input(placeholder="Vault を検索（Enter で実行、Esc で閉じる）", id="search")
         with Horizontal(id="body"):

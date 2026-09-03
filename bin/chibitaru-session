@@ -46,7 +46,9 @@ tmux set-option -t "$SESSION" pane-active-border-style "fg=${ACTIVE}"
 
 # ── ペインを割る ──────────────────────────────────────────
 # 上 65% が Vault、下 35% がシェル。
-tmux split-window -t "$SESSION:vault" -v -p 35
+# 上を広く取る。上の帯（お知らせと時計）が 7 行を使うので、35% を
+# 下にやると蔵の木も円も潰れる。下のシェルは 7 行あれば打てる。
+tmux split-window -t "$SESSION:vault" -v -p 25
 
 SHELL_PANE=$(tmux list-panes -t "$SESSION:vault" -F '#{pane_id}' | sed -n 2p)
 VAULT_PANE=$(tmux list-panes -t "$SESSION:vault" -F '#{pane_id}' | sed -n 1p)
