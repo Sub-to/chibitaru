@@ -450,13 +450,40 @@ class ChibitaruTUI(App):
         電源を切る。二度押しにする。
 
         q と同じ理由で、ひと押しで到達してよい操作ではない。
+
+        失敗を握りつぶさないこと。以前は結果を見ずに捨てていたので、
+        systemd が断っても画面には何も出ず、押しても何も起きないように
+        見えた。実際に電源を切れず、強制終了させてしまった。
+        断られたら理由をそのまま出す。
         """
-        if getattr(self, "_power_armed", False):
-            subprocess.run(["systemctl", "poweroff"], check=False)
+        if getattr(self, "_power_force", False):
+            # 他の人が入っていても切る、と決めた後の一押し。
+            subprocess.run(["systemctl", "poweroff", "-i"], check=False)
             return
+
+        if getattr(self, "_power_armed", False):
+            self._power_armed = False
+            r = subprocess.run(["systemctl", "poweroff"],
+                               capture_output=True, text=True)
+            if r.returncode == 0:
+                return
+            why = ((r.stderr or r.stdout).strip().splitlines() or ["理由不明"])[0]
+            # 他の人が入っている・止めている物がある、という断り方なら
+            # 押し切れる道を出す。それ以外は理由だけ見せる。
+            if "logged in" in why or "inhibit" in why.lower():
+                self._power_force = True
+                self.notify(f"{why}\nもう一度押すと、それでも切ります",
+                            severity="error", timeout=15)
+                self.set_timer(15.0,
+                               lambda: setattr(self, "_power_force", False))
+            else:
+                self.notify(f"電源を切れませんでした：{why}",
+                            severity="error", timeout=15)
+            return
+
         self._power_armed = True
-        self.notify("もう一度 Ctrl+Q で電源を切ります", severity="warning",
-                    timeout=5)
+        self.notify("もう一度で電源を切ります（Ctrl+Q か 電源）",
+                    severity="warning", timeout=5)
         self.set_timer(5.0, lambda: setattr(self, "_power_armed", False))
 
     def action_confirm_quit(self) -> None:

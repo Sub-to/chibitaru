@@ -296,18 +296,19 @@ class NewsTicker(Static):
                 for row in self._art)))
             return
 
-        # 上の行は動かさない。下の行だけ流す。
-        top = " " + self._cut(self._fixed, width) if self._fixed else ""
+        # 流れるほうが上、動かない天気が下。上の隙間に置いて、
+        # 下は開けておく。
+        below = " " + self._cut(self._fixed, width) if self._fixed else ""
 
         if not self._text:
-            self.update(Text(top))
+            self.update(Text(below))
             return
         # 端まで流れたら頭に戻す。連結して切り出すほうが実装が短い。
         pad = "　" * 8
         loop = self._text + pad
         self._offset = (self._offset + 1) % len(loop)
-        bottom = " " + self._cut((loop + loop)[self._offset:], width)
-        self.update(Text(top + "\n" + bottom if top else bottom))
+        flow = " " + self._cut((loop + loop)[self._offset:], width)
+        self.update(Text(flow + "\n" + below if below else flow))
 
     @staticmethod
     def _cut(s: str, width: int) -> str:
@@ -426,11 +427,11 @@ class BigClock(Static):
         # 半分の高さ。6 行だと帯が画面の三分の一を占めて、蔵の木も
         # 円も潰れた。3 行でも十分に離れたところから読める。
         rows = bigtext.render(f"{now.hour:02d}:{now.minute:02d}", half=True)
-        w = max(len(r) for r in rows) if rows else 0
         date = (f"{now.year}-{now.month:02d}-{now.day:02d} "
                 f"({WEEKDAY[now.weekday()]})")
-        # 日付は時計の幅に収める。中央に置くと数字とずれて見える。
-        self.update(Text("\n".join(rows) + "\n" + date.center(w)))
+        # 日付は時計の上、左詰め。下に置くとぶら下がって見え、
+        # 中央に置くと数字の並びとずれる。
+        self.update(Text(date + "\n" + "\n".join(rows)))
 
 
 class TopBar(Horizontal):

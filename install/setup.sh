@@ -153,6 +153,14 @@ step_packages() {
     # 設定すると sudo を入れないため、実機で「sudo: command not found」に
     # なった。この OS は普段使いを想定するので必要。
     sudo
+    # 一般利用者が電源を切るのに要る。これが無いと systemctl poweroff が
+    # 「Access denied」で断られる。しかも画面には何も出ないので、
+    # 押しても何も起きないように見える。実機で電源を切れず、
+    # 強制終了させてしまった。polkitd 本体は 2.4MB しか使わない。
+    polkitd
+    # お知らせを大きい字で流す時に使う（既定では使わない）。
+    # 使うのは chibitaru-news の側で、画面には持ち込まない。
+    python3-pil
     python3 python3-venv python3-pip git curl rsync ripgrep micro pciutils util-linux
     # TUI シェル。端末エミュレータは自前で持たず tmux に任せるので、
     # 下のペインでは vim も htop も普通に動く。

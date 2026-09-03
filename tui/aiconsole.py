@@ -13,7 +13,7 @@ import math
 from datetime import datetime
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Label, Static
 
 # 状態 → (中央の一文字, 環の数, 回る速さ)
@@ -127,24 +127,50 @@ class Switches(Vertical):
 
     声で動かす前提の画面だが、声が効かない時に電源を切れないと詰む。
     逃げ道を、壊れているかもしれない仕組みに預けない。
+
+    会話は「入」と「切」を並べて、いま点いているほうが光る。
+    ひとつの札に今の状態だけ出すやり方だと、それが「いまの状態」なのか
+    「押すとこうなる」のか分からない。二つ並べて片方が光っていれば
+    迷いようがない。
     """
 
+    # 灯は形を変えず、色だけで示す。
+    #
+    # 最初は点いている時 ◉ 消えている時 ○ にしたが、この二つは
+    # 端末での幅の扱いが違い、切り替えるたびに 1 桁ずれた。
+    # 同じ字なら幅も同じで、位置は動かない。
+    LAMP = "●"
+
+    # 札と灯を一つの札に二行で持つ。別々の widget にすると、
+    # 全角の漢字と丸記号で幅が違い、中央揃えが揃わなかった。
+    # 同じ札の中なら、二行とも同じ位置から始まる。
     def compose(self) -> ComposeResult:
-        yield Label(" 会話  切", id="sw-talk", classes="switch")
-        yield Label(" 電源", id="sw-power", classes="switch")
+        yield Label("会話", id="sw-title")
+        with Horizontal(id="sw-lamps"):
+            yield Label(f"入\n{self.LAMP}", id="sw-on", classes="sw-lamp")
+            yield Label(f"切\n{self.LAMP}", id="sw-off", classes="sw-lamp")
+        with Horizontal(classes="sw-row"):
+            yield Label(f"電源 {self.LAMP}", id="sw-power", classes="switch")
+            yield Label("終了", id="sw-quit", classes="switch")
 
     def on_mount(self) -> None:
         self.talking = False
+        self.set_talking(False)
 
     def set_talking(self, on: bool) -> None:
         self.talking = on
-        self.query_one("#sw-talk", Label).update(
-            " 会話  [$success]入[/]" if on else " 会話  切")
-        self.query_one("#sw-talk", Label).set_class(on, "on")
+        self.query_one("#sw-on", Label).set_class(on, "lit")
+        self.query_one("#sw-off", Label).set_class(not on, "lit")
 
     def on_click(self, event) -> None:
         wid = getattr(event.widget, "id", "") or ""
-        if wid == "sw-talk":
-            self.app.action_toggle_talk()
+        if wid == "sw-on":
+            if not self.talking:
+                self.app.action_toggle_talk()
+        elif wid == "sw-off":
+            if self.talking:
+                self.app.action_toggle_talk()
         elif wid == "sw-power":
             self.app.action_power_off()
+        elif wid == "sw-quit":
+            self.app.action_confirm_quit()

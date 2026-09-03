@@ -60,14 +60,14 @@ Footer { border-top: solid #1d6b41; height: 2; }
 NewsTicker {
     width: 1fr; height: 4;
     background: #08100c; color: #ffb300;
-    content-align: left middle;
+    content-align: left top;
     text-style: bold;
 }
 
 #bigclock {
     width: 33; height: 4;
     background: #08100c; color: #8dffb8;
-    content-align: center top;
+    content-align: left top;
 }
 
 /* 三つの列 — 左は蔵、真ん中は本文か AI、右は計器とボタン */
@@ -91,11 +91,29 @@ NewsTicker {
 .mu-btn { width: 3; content-align: center middle; color: #5cf0a0; }
 .mu-btn:hover { background: #0f2419; }
 
-/* 大事なボタンだけは押せるようにしておく */
+/* 大事なボタンだけは押せるようにしておく。
+   会話は「入」と「切」を並べ、点いているほうの灯を光らせる。
+   札ひとつに今の状態だけ出すと、それが「いまの状態」なのか
+   「押すとこうなる」のか分からない。 */
+#sw-title { color: #1d6b41; text-align: center; height: 1; }
+.sw-row { height: 1; }
+
+/* 札と灯は一つの札に二行。別々にすると、漢字（2桁）と丸記号で
+   幅が違い、中央揃えが揃わない。左端を揃えて縦に並べる。 */
+#sw-lamps { height: 2; }
+.sw-lamp {
+    width: 1fr; height: 2;
+    padding-left: 3;
+    color: #1d6b41;
+}
+/* 点いているほうだけ光る。色も入と切で変えて、状態が色でも分かる */
+#sw-on.lit  { color: #8dffb8; text-style: bold; }
+#sw-off.lit { color: #ffb300; text-style: bold; }
+
 .switch {
-    height: 1; margin: 0 1;
-    background: #0f2419; color: #33e07a;
-    content-align: left middle;
+    width: 1fr; height: 1;
+    background: #0f2419; color: #1d6b41;
+    content-align: center middle;
 }
 .switch:hover { background: #1d6b41; }
 #sw-power { color: #ff5f45; }
