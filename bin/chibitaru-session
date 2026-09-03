@@ -37,7 +37,8 @@ THEME_NAME=$(for f in /etc/chibitaru/theme "${XDG_CONFIG_HOME:-$HOME/.config}/ch
   [ -r "$f" ] && awk -F= '/^CHIBITARU_THEME=/{print $2}' "$f"
 done | tail -1)
 case "$THEME_NAME" in
-  latte) BORDER="#ccd0da"; ACTIVE="#1e66f5" ;;
+  latte)   BORDER="#ccd0da"; ACTIVE="#1e66f5" ;;
+  fallout) BORDER="#1d6b41"; ACTIVE="#33e07a" ;;
   *)     BORDER="#313244"; ACTIVE="#89b4fa" ;;
 esac
 tmux set-option -t "$SESSION" pane-border-style        "fg=${BORDER}"

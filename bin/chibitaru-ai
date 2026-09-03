@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""
+会話AI。呼ぶ時だけ起き、黙ったら自分で落ちる。
+
+  chibitaru-ai "今日書いたことをまとめて"
+  chibitaru-ai --json "画面をもうちょっと暗くして"
+  chibitaru-ai --status
+  chibitaru-ai --stop
+
+なぜ常駐させないか — 1.5B は 1.1GB ほど占める。11GB の機体なら
+気にならないが、この OS が救おうとしているのは 4GB の機体で、
+そこでは Firefox 一枚ぶんに相当する。使っていない間ずっと
+持っていていい量ではない。だから使う時だけ起こす。
+
+読み込みに数秒かかるが、それは「待たされる」ではなく「その間
+他のものが動ける」ということでもある。
+
+答えは形を決めて出させる（json_schema）。1.5B は自由に喋らせると
+形を崩すが、形を縛れば中身の判断だけに専念できる。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import knobs  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+SERVER = ROOT / "bin" / "linux-x64" / "llama-server"
+PORT = 8177
+IDLE_SECONDS = 300          # これだけ黙っていたら落ちる
+START_TIMEOUT = 90          # 古い機体では読み込みに時間がかかる
+
+
+def state_dir() -> Path:
+    base = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/chibitaru-{os.getuid()}"
+    d = Path(base) / "chibitaru"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+PIDFILE = None      # 実行時に決める（state_dir が環境に依るため）
+STAMP = None
+
+
+def _paths() -> None:
+    global PIDFILE, STAMP
+    d = state_dir()
+    PIDFILE = d / "ai.pid"
+    STAMP = d / "ai.stamp"
+
+
+def model_path() -> Path | None:
+    """
+    使うモデルを決める。名前を決め打ちせず、置いてあるものを拾う。
+    機種によって載せられる大きさが違うので、入れ替えられるほうがいい。
+    """
+    d = ROOT / "models"
+    files = sorted(d.glob("*.gguf")) if d.is_dir() else []
+    return files[0] if files else None
+
+
+# ── 起き死に ──────────────────────────────────────────────
+def alive() -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=1) as r:
+            return r.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def start() -> tuple[bool, str]:
+    if alive():
+        return True, "もう動いています"
+    model = model_path()
+    if model is None:
+        return False, "モデルがありません（/opt/chibitaru/models に .gguf を置いてください）"
+    if not SERVER.is_file():
+        return False, f"{SERVER} がありません"
+
+    env = dict(os.environ)
+    # 同じ場所の .so を先に見る。入れておかないと、系統の違うものを
+    # 掴んで起動しない。
+    env["LD_LIBRARY_PATH"] = f"{SERVER.parent}:{env.get('LD_LIBRARY_PATH', '')}"
+
+    cmd = [
+        str(SERVER), "-m", str(model),
+        "--host", "127.0.0.1", "--port", str(PORT),
+        "-c", "4096",            # これ以上は要らない。長くすると遅く重くなる
+        "-t", str(threads()),
+        "--no-webui",
+    ]
+    log = state_dir() / "ai.log"
+    with log.open("ab") as f:
+        p = subprocess.Popen(cmd, stdout=f, stderr=f, env=env,
+                             start_new_session=True)
+    PIDFILE.write_text(str(p.pid))
+
+    # 立ち上がるまで待つ。落ちていたらすぐ気づけるように毎回見る。
+    deadline = time.time() + START_TIMEOUT
+    while time.time() < deadline:
+        if alive():
+            touch()
+            watchdog()
+            return True, "起きました"
+        if p.poll() is not None:
+            tail = "".join(log.read_text(errors="replace").splitlines(True)[-5:])
+            return False, f"起動に失敗しました\n{tail}"
+        time.sleep(0.5)
+    return False, f"{START_TIMEOUT}秒待っても起きませんでした"
+
+
+def stop() -> str:
+    if PIDFILE.is_file():
+        try:
+            os.kill(int(PIDFILE.read_text().strip()), signal.SIGTERM)
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass
+        PIDFILE.unlink(missing_ok=True)
+    return "落としました"
+
+
+def threads() -> int:
+    """
+    数える力の割り当て。
+
+    推論は計算より記憶の読み書きで詰まるので、糸を増やしても
+    そのぶん速くはならない。物理の芯の数に合わせる（T440s は
+    4 に見えて芯は 2）。他のものが完全に止まるのも避けたい。
+    """
+    try:
+        n = len(os.sched_getaffinity(0))
+    except AttributeError:
+        n = os.cpu_count() or 2
+    return max(1, n // 2)
+
+
+def touch() -> None:
+    STAMP.write_text(str(time.time()))
+
+
+def watcher_alive() -> bool:
+    lock = state_dir() / "watch.pid"
+    try:
+        os.kill(int(lock.read_text().strip()), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def watchdog() -> None:
+    """
+    見張りを別に立てる。最後に使われてから黙っていたら落とす。
+
+    落とすのを画面側に任せると、画面が落ちた時に AI が残る。
+    自分の後始末は自分で持たせる。
+    """
+    if watcher_alive():
+        return
+    subprocess.Popen([sys.executable, __file__, "--watch"],
+                     start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def watch_loop() -> int:
+    # 二重に立たないよう、既に見張りがいれば黙って降りる
+    if watcher_alive():
+        return 0
+    lock = state_dir() / "watch.pid"
+    lock.write_text(str(os.getpid()))
+    try:
+        while True:
+            time.sleep(20)
+            if not alive():
+                return 0
+            try:
+                last = float(STAMP.read_text().strip())
+            except (OSError, ValueError):
+                last = time.time()
+            if time.time() - last > IDLE_SECONDS:
+                stop()
+                return 0
+    finally:
+        # 自分の札の時だけ片づける。持ち主を見ずに消していたので、
+        # 後から立った見張りの札まで消してしまい、三つ並んで動いた。
+        try:
+            if lock.read_text().strip() == str(os.getpid()):
+                lock.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+# ── 訊く ──────────────────────────────────────────────────
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "操作": {"type": "string",
+                 "enum": [k.key for k in knobs.CATALOG if k.set] + ["なし"]},
+        # どのくらい動かすかは訊かない。「上げる」「下げる」だけ言わせて、
+        # 幅は目録が持つ。数まで決めさせると「もっと暗くして」で 0 を
+        # 返してきて画面が真っ暗になった（実機で起きた）。
+        "やり方": {"type": "string",
+                   "enum": ["上げる", "下げる", "この値にする", "なし"]},
+        "値": {"type": "string"},
+        "返事": {"type": "string"},
+    },
+    "required": ["操作", "やり方", "値", "返事"],
+}
+
+
+def system_prompt() -> str:
+    """
+    何ができるかは目録から作る。ここに手で書き写すと、目録に足しても
+    AI は知らないまま、という食い違いが出る。
+    """
+    return (
+        "あなたは古いノートPCで動く日本語の助手です。名前は「ちびたる」。\n"
+        "画面と機械の設定を変えられます。触れるものはこれだけです：\n\n"
+        f"{knobs.describe()}\n\n"
+        "設定を変える話なら、操作にその英語の名前を入れ、やり方を選びます。\n"
+        "  上げる／下げる …… どのくらい動かすかは機械が決めます。数は要りません\n"
+        "  この値にする   …… 値に 0〜100 の数、または配色の名前を入れます\n"
+        "設定の話でなければ、操作もやり方も「なし」にして、返事だけ書きます。\n\n"
+        "言葉のとおりに受け取らないこと。「文字が小さくて読みにくい」は、"
+        "文字を大きくしてほしいという意味です。\n"
+        "訊かれたら自分でやること。やり方を教えて終わりにしない。\n"
+        "返事は一文で、短く。丁寧すぎない普通の日本語で。"
+    )
+
+
+# 実例。小さいモデルには、説明を足すより実例を見せるほうが効く。
+# 「文字が小さくて読みにくい」に「文字を大きくしてください」と
+# 助言だけ返してきたのが、これを足す前の状態。
+EXAMPLES = [
+    ("文字が小さくて読みにくい",
+     {"操作": "font", "やり方": "上げる", "値": "", "返事": "文字を大きくします"}),
+    ("まぶしい",
+     {"操作": "brightness", "やり方": "下げる", "値": "", "返事": "暗くします"}),
+    # 不平は、それだけで頼みごと。「うるさい」を挨拶と受け取って
+    # 「どういたしまして」と返してきたので、実例で示す。
+    ("うるさい",
+     {"操作": "volume", "やり方": "下げる", "値": "", "返事": "音量を下げます"}),
+    ("目が疲れたので緑の画面にして",
+     {"操作": "theme", "やり方": "この値にする", "値": "fallout",
+      "返事": "緑の画面にします"}),
+    ("音量を四十パーセントに",
+     {"操作": "volume", "やり方": "この値にする", "値": "40",
+      "返事": "音量を40%にします"}),
+    ("ありがとう",
+     {"操作": "なし", "やり方": "なし", "値": "", "返事": "どういたしまして"}),
+    # 触れないものは断る。「寒い」に明るさを上げて応えてきたので、
+    # 目録の外なら手を出さない、という例を置く。
+    ("寒い",
+     {"操作": "なし", "やり方": "なし", "値": "",
+      "返事": "暖房は動かせません"}),
+]
+
+
+def shots() -> list[dict]:
+    msgs = []
+    for q, a in EXAMPLES:
+        msgs.append({"role": "user", "content": q})
+        msgs.append({"role": "assistant",
+                     "content": json.dumps(a, ensure_ascii=False)})
+    return msgs
+
+
+def ask(text: str, timeout: int = 120) -> tuple[bool, dict]:
+    body = json.dumps({
+        "messages": ([{"role": "system", "content": system_prompt()}]
+                     + shots()
+                     + [{"role": "user", "content": text}]),
+        "response_format": {"type": "json_schema",
+                            "json_schema": {"name": "act", "schema": SCHEMA}},
+        "temperature": 0.2,
+        "max_tokens": 200,
+    }).encode()
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{PORT}/v1/chat/completions",
+        data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            out = json.loads(r.read())
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return False, {"返事": f"考えられませんでした（{e}）"}
+    touch()
+    try:
+        return True, json.loads(out["choices"][0]["message"]["content"])
+    except (KeyError, IndexError, ValueError):
+        return False, {"返事": "うまく答えられませんでした"}
+
+
+def main() -> int:
+    _paths()
+    argv = sys.argv[1:]
+
+    if "--watch" in argv:
+        return watch_loop()
+    if "--stop" in argv:
+        print(stop())
+        return 0
+    if "--status" in argv:
+        m = model_path()
+        print(f"AI      {'動いています' if alive() else '休んでいます'}")
+        print(f"モデル  {m.name if m else '（ありません）'}")
+        print(f"糸      {threads()}")
+        return 0 if m else 1
+
+    as_json = "--json" in argv
+    args = [a for a in argv if not a.startswith("--")]
+    if not args:
+        print("何を訊くのか渡してください", file=sys.stderr)
+        return 4
+
+    if not alive():
+        ok, msg = start()
+        if not ok:
+            if as_json:
+                print(json.dumps({"ok": False, "返事": msg}, ensure_ascii=False))
+            else:
+                print(msg, file=sys.stderr)
+            return 1
+
+    ok, ans = ask(" ".join(args))
+    reply = ans.get("返事", "")
+    key = ans.get("操作", "なし")
+
+    # 設定の話だと分かったら、目録を通して実際に動かす。
+    # AI に直接コマンドを打たせない。何を実行しうるかを目録が
+    # 決めていれば、間違えても目録の外には出られない。
+    #
+    # AI が決めるのは「何を、どっちに」まで。どのくらい動かすかは
+    # 目録が持つ。両方まかせて、言われた文と AI の返す数を混ぜて
+    # 渡していた頃は、数字の拾い方が競合して的外れな値になった。
+    if ok and key in knobs.BY_KEY:
+        k = knobs.BY_KEY[key]
+        how = ans.get("やり方", "なし")
+        if how == "上げる":
+            rc, msg = knobs.apply(k, "上げて")
+        elif how == "下げる":
+            rc, msg = knobs.apply(k, "下げて")
+        else:
+            rc, msg = knobs.apply(k, str(ans.get("値", "")).strip())
+        reply = msg
+    else:
+        key = None
+
+    if as_json:
+        print(json.dumps({"ok": ok, "kind": key, "message": reply},
+                         ensure_ascii=False))
+    else:
+        print(reply)
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

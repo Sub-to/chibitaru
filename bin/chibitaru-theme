@@ -4,6 +4,7 @@
 #   chibitaru-theme                 いまの設定を見る
 #   chibitaru-theme mocha           濃い青ベースにする
 #   chibitaru-theme latte           薄い青ベースにする
+#   chibitaru-theme fallout         緑の蛍光管にする
 #   chibitaru-theme --size 18       文字を大きくする
 #   chibitaru-theme latte --size 16 まとめて
 #
@@ -14,7 +15,7 @@ set -euo pipefail
 ROOT=/opt/chibitaru
 SYS_CONF=/etc/chibitaru/theme
 USER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/chibitaru/theme"
-THEMES="mocha latte"
+THEMES="mocha latte fallout"
 
 # 見た目はその人の好みであって、機械の設定ではない。ふつうの利用者で
 # 動かしたら自分のところに書き、root なら機械ぜんたいの既定を書く。
@@ -31,7 +32,7 @@ while [ $# -gt 0 ]; do
     --size) size="${2:-}"; shift 2 ;;
     --apply) apply_now=true; shift ;;
     -h|--help) sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 0 ;;
-    mocha|latte) theme="$1"; shift ;;
+    mocha|latte|fallout) theme="$1"; shift ;;
     *) echo "知らない指定: $1（使えるのは $THEMES と --size）" >&2; exit 1 ;;
   esac
 done

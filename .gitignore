@@ -21,3 +21,6 @@ __pycache__/
 *.pyc
 *.pyo
 .vm/
+
+# 会話AI のモデル。1.1GB あるので置かない。install/qwen.sh で落とす。
+models/*.gguf

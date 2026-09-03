@@ -1,0 +1,83 @@
+/* フォールアウト風 — 緑の蛍光管
+ *
+ * 色数を絞るのがこの見た目の要。緑の濃さだけで奥行きを作る。
+ * 色を足すほど「古い端末」ではなく「今の端末に緑を塗ったもの」
+ * に見えてくる。橙と赤は、温度と電池が危ない時だけに残してある。
+ * 読めないと困るものまで緑に沈めると、見た目のために実用を捨てる
+ * ことになる。
+ */
+Screen { layout: vertical; background: #0b1410; color: #33e07a; }
+#body  { height: 1fr; }
+#left  { width: 32; background: #08100c; border-right: solid #1d6b41; }
+VaultTree { height: 1fr; background: #08100c; color: #33e07a; }
+VaultTree > .tree--cursor    { background: #33e07a; color: #0b1410; }
+VaultTree > .tree--highlight { background: #0f2419; }
+#backlinks { height: 8; background: #08100c; border-top: solid #1d6b41; padding: 0 1; }
+#backlinks-title { color: #1d6b41; }
+#backlist { background: #08100c; }
+#backlist > ListItem { background: #08100c; color: #5cf0a0; }
+#backlist > ListItem.--highlight { background: #0f2419; }
+#right { width: 1fr; background: #0b1410; }
+Markdown { padding: 0 2; background: #0b1410; color: #33e07a; }
+MarkdownH1 { color: #8dffb8; text-style: bold; }
+MarkdownH2 { color: #5cf0a0; text-style: bold; }
+MarkdownH3 { color: #3ff08a; }
+MarkdownBullet { color: #2bc46a; }
+MarkdownFence { background: #08100c; }
+
+Footer { background: #08100c; color: #2bc46a; }
+Footer > .footer--key { background: #33e07a; color: #0b1410; text-style: bold; }
+#search { display: none; background: #0f2419; color: #8dffb8; }
+#search.visible { display: block; }
+Toast { background: #0f2419; color: #8dffb8; }
+
+/* dock は使わない。同じ辺に複数置くと重なる（実機で
+   お知らせと上部バーが両方 y=0 になった）。Screen が
+   layout: vertical なので、書いた順に上から並ぶ。 */
+
+/* 上部バー — 左に状態、右に日付と時刻 */
+TopBar { height: 1; background: #0f2419; color: #33e07a; }
+#top-state { width: auto; background: #0f2419; }
+#top-clock { width: 1fr; text-align: right; color: #8dffb8; background: #0f2419; }
+
+/* コンソールとの境目に線を引く。ここが曖昧だと
+   どこまでが Vault でどこからがシェルか分かりにくい。 */
+Footer { border-top: solid #1d6b41; height: 2; }
+
+/* お知らせ — 画面の一番上を右から左へ流れる */
+NewsTicker {
+    height: 1;
+    background: #08100c; color: #ffb300;
+    text-style: bold;
+}
+
+/* 三つの列 — 左は蔵、真ん中は本文か AI、右は計器とボタン */
+#left   { width: 22; }
+#center { width: 1fr; }
+#right  { width: 18; border-left: solid #1d6b41; }
+
+/* AI の居場所。円だけは一番明るい緑にする。ここが光って
+   見えるかどうかで、画面が生きているかが決まる。 */
+#ai { width: 1fr; height: 1fr; }
+#ring { height: 1fr; padding-top: 2; color: #8dffb8; }
+#ai-log { height: 5; padding: 0 1; color: #2bc46a; }
+
+/* 計器 — 見るだけ。つまみは置かない（調整は声で） */
+.panel-title { color: #1d6b41; }
+#mixer { height: 5; padding: 0 1; }
+#mixer Label { color: #33e07a; }
+#music { height: 3; padding: 0 1; }
+#mu-title { color: #1d6b41; }
+#mu-buttons { height: 1; }
+.mu-btn { width: 3; content-align: center middle; color: #5cf0a0; }
+.mu-btn:hover { background: #0f2419; }
+
+/* 大事なボタンだけは押せるようにしておく */
+.switch {
+    height: 1; margin: 0 1;
+    background: #0f2419; color: #33e07a;
+    content-align: left middle;
+}
+.switch:hover { background: #1d6b41; }
+#sw-power { color: #ff5f45; }
+#backlinks { height: 4; }

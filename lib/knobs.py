@@ -256,8 +256,8 @@ def _theme_cmd(*args: str) -> tuple[int, str]:
 
 
 def theme_set(name: str) -> tuple[bool, str]:
-    if name not in ("mocha", "latte"):
-        return False, "配色は mocha か latte です"
+    if name not in BY_KEY["theme"].choices:
+        return False, f"配色は {' か '.join(BY_KEY['theme'].choices)} です"
     rc, err = _theme_cmd(name, "--apply")
     return (True, f"配色を {name} にしました") if rc == 0 else (False, f"変えられませんでした（{err}）")
 
@@ -291,6 +291,9 @@ class Knob:
     get: Callable | None = None
     set: Callable | None = None
     choices: tuple[str, ...] = ()
+    # 選ぶものの言い換え。「緑にして」で fallout に届くように。
+    # 正式な名前だけを見ていると、人は正式な名前で呼ばない。
+    aliases: dict = field(default_factory=dict)
     lo: int = 0
     hi: int = 100
     step: int = 10                   # 「上げて」で動く幅
@@ -318,7 +321,13 @@ CATALOG: list[Knob] = [
          ("明る", "あかる", "輝度", "画面を", "まぶし", "暗く", "くらく", "照度"),
          "percent", brightness_get, brightness_set, step=15),
     Knob("theme", "配色", ("配色", "色", "テーマ", "はいしょく"),
-         "choice", theme_get, theme_set, choices=("mocha", "latte"), unit=""),
+         "choice", theme_get, theme_set,
+         choices=("mocha", "latte", "fallout"), unit="",
+         aliases={
+             "mocha":   ("濃い", "暗い", "夜", "青", "モカ"),
+             "latte":   ("薄い", "明るい", "昼", "白", "ラテ"),
+             "fallout": ("緑", "みどり", "蛍光", "フォールアウト", "廃墟"),
+         }),
     Knob("font", "文字の大きさ", ("文字", "フォント", "大きさ"),
          "percent", font_get, font_set, lo=10, hi=24, step=2, unit=""),
 
@@ -369,7 +378,8 @@ def apply(k: Knob, text: str) -> tuple[int, str]:
 
     if k.kind == "choice":
         for c in k.choices:
-            if c in text:
+            # 正式な名前が先。言い換えは、名前で当たらなかった時だけ見る。
+            if c in text or any(a in text for a in k.aliases.get(c, ())):
                 ok, msg = k.set(c)
                 return (0 if ok else 1), msg
         return 4, f"{k.label}は {'/'.join(k.choices)} から選んでください"

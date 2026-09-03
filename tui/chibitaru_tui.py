@@ -406,8 +406,11 @@ class ChibitaruTUI(App):
         show("think", "あなた", heard)
 
         try:
+            # AI に回ることがある。初回は 1.1GB の読み込みが入るので
+            # 10 秒を超える。円が回っている間は待てるので、短く切って
+            # 「聞き取れませんでした」にするより待たせるほうがいい。
             a = subprocess.run(["chibitaru-act", "--json", heard],
-                               capture_output=True, text=True, timeout=20)
+                               capture_output=True, text=True, timeout=150)
             data = json.loads(a.stdout or "{}")
         except (FileNotFoundError, subprocess.SubprocessError,
                 json.JSONDecodeError):

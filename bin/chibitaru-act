@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -123,9 +124,48 @@ def emit(kind: str, rc: int, msg: str, as_json: bool, confirm: bool = False) -> 
     return rc
 
 
+# 不平は、向きを言っていない。「文字が小さくて読みにくい」は
+# 小さくしろではなく大きくしろという意味で、語の並びでは逆に取れる
+# （実機で実際に逆に動いた）。話の相手が要るのはこういう時なので、
+# 語で決めつけずに AI へ回す。
+COMPLAINT = re.compile(r"(にくい|づらい|辛い|つらい|見えない|聞こえない|疲れ|嫌|やだ)")
+
+# 値を訊いているだけの言い方。これは答えるのが正しく、AI は要らない。
+QUESTION = re.compile(r"(いくつ|どのくらい|どれくらい|何％|何%|教えて|\?|？)")
+
+
+def ask_ai(text: str, as_json: bool, retry_knob=None) -> int:
+    """
+    語の並びで手に負えなかったものを AI に回す。
+
+    ここまでで済むものは AI を呼ばない。呼べば数秒待たされるし、
+    1.1GB を読み込む。「音量下げて」に 3 秒かける理由はない。
+    分からなかった時だけ値段を払う。
+
+    AI が居ない機体もある（モデルを入れていない、4GB で外してある）。
+    その時は語の並びの結論に戻す。落ちるのではなく、できるところまで
+    やって返す。
+    """
+    if "--no-ai" not in sys.argv:
+        try:
+            p = subprocess.run(["chibitaru-ai", "--json", text],
+                               capture_output=True, text=True, timeout=150)
+            out = json.loads(p.stdout)
+            if out.get("ok"):
+                return emit(out.get("kind") or "ai", 0,
+                            out.get("message", ""), as_json)
+        except (FileNotFoundError, subprocess.SubprocessError, ValueError):
+            pass
+
+    if retry_knob is not None:
+        rc, msg = knobs.apply(retry_knob, text)
+        return emit(retry_knob.key, rc, msg, as_json)
+    return emit("unknown", 4, "うまく聞き取れませんでした", as_json)
+
+
 def main() -> int:
     as_json = "--json" in sys.argv
-    args = [a for a in sys.argv[1:] if a != "--json"]
+    args = [a for a in sys.argv[1:] if a not in ("--json", "--no-ai")]
     if not args:
         print("何を言われたのか渡してください", file=sys.stderr)
         return 4
@@ -143,7 +183,7 @@ def main() -> int:
         if re.search(r"(上げ|下げ|大きく|小さく|あげ|さげ)", text):
             k = knobs.BY_KEY["volume"]
         else:
-            return emit("unknown", 4, "うまく聞き取れませんでした", as_json)
+            return ask_ai(text, as_json)
 
     if k.kind == "danger":
         # 実行しない。確認は画面側で取る。取り返しがつかないものを
@@ -151,7 +191,23 @@ def main() -> int:
         word = "電源を切ります" if k.key == "power" else "再起動します"
         return emit(k.key, 3, f"{word}。よろしいですか？", as_json, confirm=True)
 
+    # 不平は向きを言っていないので、語で決めつけない
+    if COMPLAINT.search(text):
+        return ask_ai(text, as_json, retry_knob=k)
+
     rc, msg = knobs.apply(k, text)
+
+    # 話題は当たったが、どうしたいのかが分からなかった場合
+    # （「うるさい」「まぶしい」）。ここで値を答えて済ませると、
+    # 頼んだことが何も起きない。値を訊かれた時だけ答える。
+    if msg.startswith("いまの") and not QUESTION.search(text):
+        # 名前だけ言われた（「音量」）なら、答えるのが正しい
+        rest = text
+        for w in k.words:
+            rest = rest.replace(w, " ")
+        if rest.strip():
+            return ask_ai(text, as_json, retry_knob=k)
+
     return emit(k.key, rc, msg, as_json)
 
 
