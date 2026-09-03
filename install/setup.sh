@@ -161,6 +161,10 @@ step_packages() {
     # お知らせを大きい字で流す時に使う（既定では使わない）。
     # 使うのは chibitaru-news の側で、画面には持ち込まない。
     python3-pil
+    # ブラウザを「開く」手立て。firefox は入れてあるのに xdg-open が
+    # 無く、ログインなどで「ブラウザが開きません」と言われて止まった。
+    # 入っていることと、開けることは別。
+    xdg-utils
     python3 python3-venv python3-pip git curl rsync ripgrep micro pciutils util-linux
     # TUI シェル。端末エミュレータは自前で持たず tmux に任せるので、
     # 下のペインでは vim も htop も普通に動く。
@@ -479,6 +483,15 @@ step_podman() {
   done
 
   # Docker のつもりで打っても通るように
+  # どのブラウザを開くかを決めておく。firefox は入っているのに
+  # 開き方が決まっていないと、ログインの途中で「ブラウザが開きません」
+  # と言われて止まる。実機で Claude Code のログインが止まった。
+  install -D -m 644 /dev/stdin /etc/profile.d/chibitaru-browser.sh <<'EOF'
+# install/setup.sh が生成
+export BROWSER=firefox-esr
+EOF
+  c_ok "既定のブラウザを firefox-esr に"
+
   install -D -m 644 /dev/stdin /etc/profile.d/chibitaru-podman.sh <<'EOF'
 # docker と打っても podman が動く。既存の手順書がそのまま通る。
 command -v podman >/dev/null && ! command -v docker >/dev/null && alias docker=podman
