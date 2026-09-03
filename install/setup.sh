@@ -810,6 +810,13 @@ EOF
     cat >> "$prof" <<'EOF'
 
 # ── chibitaru-session ──────────────────────────────
+# bash は ~/.bash_profile があると ~/.profile を読まない。Debian は
+# その ~/.profile で PATH に ~/.local/bin を足しているので、ここで
+# 読んでおかないと、そこに入れたものが PATH から消える。
+# 実機で claude が「入っていない」ように見えたのはこれが原因だった。
+# 実際には入っていて、居場所が見えなくなっていただけ。
+[ -r "$HOME/.profile" ] && . "$HOME/.profile"
+
 # tty1 から入った時だけ画面を起こす。SSH では起こさない。
 if [ -z "${WAYLAND_DISPLAY:-}" ] && [ "$(tty)" = "/dev/tty1" ]; then
     exec dbus-run-session labwc
